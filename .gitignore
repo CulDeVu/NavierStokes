@@ -1,0 +1,15 @@
+*.exe
+
+*.opensdf
+*.v12.suo
+*.sdf
+*.ppm
+*.png
+*.dll
+
+GLFW/
+
+[Oo]bj/
+[Bb]in
+[Dd]ebug*/
+[Rr]elease*/
