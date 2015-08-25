@@ -25,12 +25,15 @@ float PI = 3.14159;
 const int cellW = 100,
 	cellH = 100;
 const float dt = 1.f / 60.f;
+const float rho = 1;
 
 float ink[cellW][cellH];
 float ink_next[cellW][cellH];
 
-vec2 vel[cellW][cellH];
-vec2 vel_next[cellW][cellH];
+vec2 vel[cellW + 1][cellH + 1];
+vec2 vel_A[cellW + 1][cellH + 1];
+vec2 vel_B[cellW + 1][cellH + 1];
+vec2 vel_next[cellW + 1][cellH + 1];
 
 float pressure[cellW][cellH];
 GLFWwindow* window;
@@ -40,20 +43,39 @@ float nrand()
 	return (float)rand() / RAND_MAX;
 }
 
-vec2 gradient(int x, int y, float g[cellW][cellH])
+// just at integer pos
+vec2 velAt(vec2 vel[cellW + 1][cellH + 1], vec2 pos)
 {
-	return vec2((g[x + 1][y] - g[x - 1][y]) / 2.f, (g[x][y + 1] - g[x][y - 1]) / 2.f);
-}
-float divergence(int x, int y, vec2 g[cellW][cellH])
-{
-	return (g[x + 1][y].x - g[x - 1][y].x) / 2.f + (g[x][y + 1].y - g[x][y - 1].y) / 2.f;
+	float x = pos.x + 0.5;
+	float y = pos.y + 0.5;
+
+	float tu = x - floor(x);
+	float tv = y - floor(y);
+	int xt = floor(x);
+	int yt = floor(y);
+
+	float ll = (1 - tu) * (1 - tv);
+	float lh = (1 - tu) * tv;
+	float hl = tu * (1 - tv);
+	float hh = tu * tv;
+
+	if (x < 0 || x + 1 > cellW || y < 0 || y + 1 > cellH)
+	{
+		return vec2();
+	}
+
+	float u = ll * vel[xt][yt].x +
+		hl * vel[xt][yt].x;
+	float v = ll * vel[xt][yt].y +
+		lh * vel[xt][yt].y;
+	return vec2(u, v);
 }
 
 void setupParticles()
 {
-	for (int x = 0; x < cellW; ++x)
+	for (int x = 0; x < cellW + 1; ++x)
 	{
-		for (int y = 0; y < cellH; ++y)
+		for (int y = 0; y < cellH + 1; ++y)
 		{
 			//ink[x][y] = 4 * (float)y / cellH;
 
@@ -91,42 +113,15 @@ void copy(T src[cellW][cellH], T dst[cellW][cellH])
 	}
 }
 
-float clampAbove(float x)
-{
-	return x;
-}
-template <typename T>
-void advectEulerian(T q[cellW][cellH], T q_next[cellW][cellH])
+void advect(float q[cellW][cellH], float q_next[cellW][cellH])
 {
 	for (int y = 0; y < cellH; ++y)
 	{
 		for (int x = 0; x < cellW; ++x)
 		{
-			if (x - 1 < 0 || x + 1 > cellW - 1 || y < 0 || y + 1 > cellH - 1)
-				continue;
-
-			q_next[x][y] = q[x][y];
-
-			T dq_dx = (q[x + 1][y] - q[x - 1][y]) / 2.f;
-			T dq_dy = (q[x][y + 1] - q[x][y - 1]) / 2.f;
+			q_next[x][y] = 0;
 			
-			T u_dot_del_q = vel[x][y].x * dq_dx + vel[x][y].y * dq_dy;
-
-			T dq_dt = -u_dot_del_q;
-			q_next[x][y] += dq_dt * dt;
-			//q_next[x][y] = clamp(q_next[x][y], -10.f, 10000000.f);
-		}
-	}
-}
-
-template <typename T>
-void advectForwardLangrangian(T q[cellW][cellH], T q_next[cellW][cellH])
-{
-	for (int y = 0; y < cellH; ++y)
-	{
-		for (int x = 0; x < cellW; ++x)
-		{
-			vec2 advectTarget = vec2(x, y) + vel[x][y] / 60.f;
+			vec2 advectTarget = vec2(x, y) - velAt(vel, vec2(x, y)) / 60.f;
 
 			float tu = advectTarget.x - floor(advectTarget.x);
 			float tv = advectTarget.y - floor(advectTarget.y);
@@ -140,24 +135,26 @@ void advectForwardLangrangian(T q[cellW][cellH], T q_next[cellW][cellH])
 
 			if (xt < 0 || xt + 1 > cellW - 1 || yt < 0 || yt + 1 > cellH - 1)
 			{
+				q_next[x][y] = 0;
 				continue;
 			}
 
-			q_next[xt][yt] += ll * q[x][y];
-			q_next[xt + 1][yt] += hl * q[x][y];
-			q_next[xt][yt + 1] += lh * q[x][y];
-			q_next[xt + 1][yt + 1] += hh * q[x][y];
+			q_next[x][y] += ll * q[xt][yt];
+			q_next[x][y] += hl * q[xt + 1][yt];
+			q_next[x][y] += lh * q[xt][yt + 1];
+			q_next[x][y] += hh * q[xt + 1][yt + 1];
 		}
 	}
 }
 
-template <typename T>
-void advectBackwardsLangrangian(T q[cellW][cellH], T q_next[cellW][cellH])
+void advect(vec2 q[cellW + 1][cellH + 1], vec2 q_next[cellW + 1][cellH + 1])
 {
-	for (int y = 0; y < cellH; ++y)
+	for (int y = 0; y < cellH + 1; ++y)
 	{
-		for (int x = 0; x < cellW; ++x)
+		for (int x = 0; x < cellW + 1; ++x)
 		{
+			q_next[x][y] = vec2();
+
 			vec2 advectTarget = vec2(x, y) - vel[x][y] / 60.f;
 
 			float tu = advectTarget.x - floor(advectTarget.x);
@@ -170,13 +167,10 @@ void advectBackwardsLangrangian(T q[cellW][cellH], T q_next[cellW][cellH])
 			float hl = tu * (1 - tv);
 			float hh = tu * tv;
 
-			if (xt < 0 || xt + 1 > cellW - 1 || yt < 0 || yt + 1 > cellH - 1)
+			if (xt < 0 || xt + 1 > cellW || yt < 0 || yt + 1 > cellH)
 			{
-				//q_next[x][y] += q[x][y];
-				q_next[x][y] = T();
+				q_next[x][y] = vec2();
 				continue;
-				//xt = min(cellW - 2, max(xt, 0));
-				//yt = min(cellH - 2, max(yt, 0));
 			}
 
 			q_next[x][y] += ll * q[xt][yt];
@@ -187,43 +181,59 @@ void advectBackwardsLangrangian(T q[cellW][cellH], T q_next[cellW][cellH])
 	}
 }
 
+void applyExternalForces(vec2 q[cellW + 1][cellH + 1], vec2 q_next[cellW + 1][cellH + 1])
+{
+	vec2 F_grav = vec2(0, -1);
+	for (int y = 0; y < cellH + 1; ++y)
+	{
+		for (int x = 0; x < cellW + 1; ++x)
+		{
+			q_next[x][y] = q[x][y] + F_grav * dt;
+		}
+	}
+}
+
 void enforceBoundary()
 {
-	for (int x = 0; x < cellW; ++x)
+	for (int x = 0; x < cellW + 1; ++x)
 	{
 		vel[x][0].y = 0;
-		vel[x][cellH - 1].y = 0;
+		vel[x][cellH].y = 0;
 	}
 
-	for (int y = 0; y < cellH; ++y)
+	for (int y = 0; y < cellH + 1; ++y)
 	{
 		vel[0][y].x = 0;
-		vel[cellW - 1][y].x = 0;
+		vel[cellW][y].x = 0;
 	}
+}
+
+void project(vec2 q[cellW + 1][cellH + 1], vec2 q_next[cellW + 1][cellH + 1])
+{
+
 }
 
 vec2 prevPos = vec2();
 void update()
 {
-	vec2 F_grav = vec2(0, -1);
-
-	for (int x = 0; x < cellW; ++x)
+	for (int x = 0; x < cellW + 1; ++x)
 	{
-		for (int y = 0; y < cellH; ++y)
+		for (int y = 0; y < cellH + 1; ++y)
 		{
-			ink_next[x][y] = 0;
 			vel_next[x][y] = vec2();
-
-			//vel[x][y] += F_grav / 60.f;
 		}
 	}
+	for (int x = 0; x < cellW; ++x)
+		for (int y = 0; y < cellH; ++y)
+			pressure[x][y] = 0;
 
-	advectForwardLangrangian(ink, ink_next);
+
+	//advect(ink, ink_next);
 	//for (int x = 0; x < cellW; ++x) for (int y = 0; y < cellH; ++y) ink_next[x][y] = max(0.f, ink_next[x][y]);
-	//advectEulerian(vel, vel_next);
-	copy(vel, vel_next);
-
-	enforceBoundary();
+	
+	advect(vel, vel_A);
+	applyExternalForces(vel_A, vel_next);
+	//copy(vel, vel_next);
 
 	for (int x = 0; x < cellW; ++x)
 	{
@@ -253,11 +263,15 @@ void update()
 			printf("-----------------------------\n\n");
 		}*/
 
-		if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT))
+		if (0 <= rx && rx < cellW &&
+			0 <= ry && ry < cellH)
 		{
-			vec2 p = (vec2(rx, ry) - prevPos) * 10.f;
-			ink[(int)rx][(int)ry] += 1;
-			//vel[(int)rx][(int)ry] += p;
+			if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT))
+			{
+				vec2 p = (vec2(rx, ry) - prevPos) * 10.f;
+				ink[(int)rx][(int)ry] += 1;
+				//vel[(int)rx][(int)ry] += p;
+			}
 		}
 
 		prevPos = vec2(rx, ry);
@@ -299,15 +313,15 @@ void draw()
 
 	glBegin(GL_LINES);
 	{
-		for (int x = 0; x < cellW; x += 5)
+		for (int x = 0; x < cellW + 1; x += 5)
 		{
-			for (int y = 0; y < cellH; y += 5)
+			for (int y = 0; y < cellH + 1; y += 5)
 			{
 				vec2 v = vel[x][y];
 				glColor4f(1, 0, 0, 0.25f);
-				glVertex2f(x + 0.5, y + 0.5);
+				glVertex2f(x, y);
 				glColor3f(1, 0, 0);
-				glVertex2f(x + 0.5 + v.x, y + 0.5 + v.y);
+				glVertex2f(x + v.x, y + v.y);
 			}
 		}
 	}
@@ -350,7 +364,7 @@ int main()
 		auto newTime = chrono::high_resolution_clock::now();
 		float frameTime = chrono::duration_cast<chrono::milliseconds>(newTime - currentTime).count();
 
-		if (frameTime >= dt && iter < 3000)
+		if (frameTime >= dt)
 		{
 			update();
 
