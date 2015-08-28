@@ -25,7 +25,7 @@ const int mapW = 128,
 const int cellW = 128,
 	cellH = 128;
 const float dt = 1.f / 60.f;
-const float rho = 0.1;
+const float rho = 0.1; 
 
 float pressure[cellW][cellH];
 GLFWwindow* window;
