@@ -12,63 +12,196 @@
 
 #include <Windows.h>
 
-#include <glm\glm.hpp>
-
 using namespace std;
-using namespace glm;
 
-const int imageWidth = 256,
-		imageHeight = 256;
+const int imageWidth = 128,
+		imageHeight = 128;
 
 float PI = 3.14159;
 
-const int cellW = 100,
-	cellH = 100;
+const int mapW = 128,
+	mapH = 128;
+
+const int cellW = 128,
+	cellH = 128;
 const float dt = 1.f / 60.f;
-const float rho = 1;
-
-float ink[cellW][cellH];
-float ink_next[cellW][cellH];
-
-vec2 vel[cellW + 1][cellH + 1];
-vec2 vel_A[cellW + 1][cellH + 1];
-vec2 vel_B[cellW + 1][cellH + 1];
-vec2 vel_next[cellW + 1][cellH + 1];
+const float rho = 0.1;
 
 float pressure[cellW][cellH];
 GLFWwindow* window;
 
+int cellType[mapW][mapH];
+
+class fluidQ
+{
+	float* src;
+	float* dst;
+
+	float ox, oy;
+	float delta_x;
+
+	float lerp(float a, float b, float t)
+	{
+		return a * (1 - t) + b * t;
+	}
+
+	float cerp(float a, float b, float c, float d, float t)
+	{
+		float t_2 = t * t;
+		float t_3 = t_2 * t;
+
+		float minV = min(min(min(a, b), b), d);
+		float maxV = max(max(max(a, b), b), d);
+
+		float ret =
+			a*(0.0 - 0.5*t + 1.0*t_2 - 0.5*t_3) +
+			b*(1.0 + 0.0*t - 2.5*t_2 + 1.5*t_3) +
+			c*(0.0 + 0.5*t + 2.0*t_2 - 1.5*t_3) +
+			d*(0.0 + 0.0*t - 0.5*t_2 + 0.5*t_3);
+
+		return min(maxV, max(minV, ret));
+	}
+
+	void euler(float* x, float* y, float delta_t, fluidQ* u, fluidQ* v)
+	{
+		float uVel = u->lerp(*x, *y) / delta_x;
+		float vVel = v->lerp(*x, *y) / delta_x;
+
+		*x -= uVel * delta_t;
+		*y -= vVel * delta_t;
+	}
+
+	void RK3(float* x, float* y, float delta_t, fluidQ* u, fluidQ* v)
+	{
+		float u1 = u->lerp(*x, *y) / delta_x;
+		float v1 = v->lerp(*x, *y) / delta_x;
+
+		float x2 = *x - u1 * delta_t / 2;
+		float y2 = *y - v1 * delta_t / 2;
+
+		float u2 = u->lerp(x2, y2) / delta_x;
+		float v2 = v->lerp(x2, y2) / delta_x;
+
+		float x3 = *x - u2 * delta_t * 3 / 4.f;
+		float y3 = *y - v2 * delta_t * 3 / 4.f;
+
+		float u3 = u->lerp(x3, y3);
+		float v3 = v->lerp(x3, y3);
+
+		*x -= (2 * u1 + 3 * u2 + 4 * u3) * delta_t / 9;
+		*y -= (2 * v1 + 3 * v2 + 4 * v3) * delta_t / 9;
+	}
+
+public:
+	int w, h;
+
+	fluidQ(int width, int height, float oX, float oY, float delta_X)
+	{
+		w = width;
+		h = height;
+		ox = oX;
+		oy = oY;
+		delta_x = delta_X;
+		
+		src = new float[w * h];
+		dst = new float[w * h];
+
+		memset(src, 0, w * h * sizeof(float));
+	}
+
+	~fluidQ()
+	{
+		delete[] src;
+		delete[] dst;
+	}
+
+	void flip()
+	{
+		float* lulz = src;
+		src = dst;
+		dst = lulz;
+	}
+
+	float at(int x, int y) const
+	{
+		return src[y * w + x];
+	}
+	float &at(int x, int y)
+	{
+		return src[y * w + x];
+	}
+
+	float lerp(float x, float y)
+	{
+		x = min(max(x - ox, 0.f), w - 1.001f);
+		y = min(max(y - oy, 0.f), h - 1.001f);
+		int ix = (int)x;
+		int iy = (int)y;
+
+		x -= ix;
+		y -= iy;
+
+		float x00 = at(ix + 0, iy + 0);
+		float x10 = at(ix + 1, iy + 0);
+		float x01 = at(ix + 0, iy + 1);
+		float x11 = at(ix + 1, iy + 1);
+
+		return lerp(lerp(x00, x10, x), lerp(x01, x11, x), y);
+	}
+
+	float cerp(float x, float y)
+	{
+		x = min(max(x - ox, 0.f), w - 1.001f);
+		y = min(max(y - oy, 0.f), h - 1.001f);
+		int ix = (int)x;
+		int iy = (int)y;
+
+		x -= ix;
+		y -= iy;
+
+		int x0 = max(ix - 1, 0), x1 = ix, x2 = ix + 1, x3 = min(ix + 2, w - 1);
+		int y0 = max(iy - 1, 0), y1 = iy, y2 = iy + 1, y3 = min(iy + 2, h - 1);
+
+		double q0 = cerp(at(x0, y0), at(x1, y0), at(x2, y0), at(x3, y0), x);
+		double q1 = cerp(at(x0, y1), at(x1, y1), at(x2, y1), at(x3, y1), x);
+		double q2 = cerp(at(x0, y2), at(x1, y2), at(x2, y2), at(x3, y2), x);
+		double q3 = cerp(at(x0, y3), at(x1, y3), at(x2, y3), at(x3, y3), x);
+
+		return cerp(q0, q1, q2, q3, y);
+	}
+
+	void advect(float delta_t, fluidQ* u, fluidQ* v)
+	{
+		for (int iy = 0; iy < h; ++iy)
+		{
+			for (int ix = 0; ix < w; ++ix)
+			{
+				float x = ix + ox;
+				float y = iy + oy;
+
+				RK3(&x, &y, delta_t, u, v);
+
+				dst[iy * w + ix] = cerp(x, y);
+			}
+		}
+	}
+
+	void set(float x, float y, float v)
+	{
+		int ix = x;
+		int iy = y;
+
+		src[iy * w + ix] = v;
+	}
+};
+
+fluidQ* ink;
+fluidQ* u;
+fluidQ* v;
+
 float nrand()
 {
 	return (float)rand() / RAND_MAX;
-}
-
-// just at integer pos
-vec2 velAt(vec2 vel[cellW + 1][cellH + 1], vec2 pos)
-{
-	float x = pos.x + 0.5;
-	float y = pos.y + 0.5;
-
-	float tu = x - floor(x);
-	float tv = y - floor(y);
-	int xt = floor(x);
-	int yt = floor(y);
-
-	float ll = (1 - tu) * (1 - tv);
-	float lh = (1 - tu) * tv;
-	float hl = tu * (1 - tv);
-	float hh = tu * tv;
-
-	if (x < 0 || x + 1 > cellW || y < 0 || y + 1 > cellH)
-	{
-		return vec2();
-	}
-
-	float u = ll * vel[xt][yt].x +
-		hl * vel[xt][yt].x;
-	float v = ll * vel[xt][yt].y +
-		lh * vel[xt][yt].y;
-	return vec2(u, v);
 }
 
 void setupParticles()
@@ -77,172 +210,171 @@ void setupParticles()
 	{
 		for (int y = 0; y < cellH + 1; ++y)
 		{
-			//ink[x][y] = 4 * (float)y / cellH;
-
-			vec2 v1 = vec2(x - 30, y - 30) / 10.f;
-			vec2 v2 = vec2(x - 70, y - 70) / 5.f;
-			float t1 = length(v1);
-			float t2 = length(v2);
-			float t = t1 / (t1 + t2);
-			
-			//vel[x][y] = vec2(-v1.y, v1.x) * (1 - t) + vec2(v2.y, -v2.x) * t;
-			//vel[x][y] = vec2(-v1.x + 2 * v1.y, -v1.y - 2 * v1.x);
-			/*vel[x][y] = vec2(
-				v1.y - (v1.x*v1.x*v1.x + v1.x),
-				-v1.x);*/
-			vel[x][y] = vec2(-v1.y, v1.x);
-			//vel[x][y] = vec2();
-			//vel[x][y] = vec2(-y, x) / 10.f;
-		}
-	}
-
-	for (int i = 0; i < cellH; i += 4)
-		ink[50][i] = 100;
-}
-
-template <typename T>
-void copy(T src[cellW][cellH], T dst[cellW][cellH])
-{
-	for (int x = 0; x < cellW; ++x)
-	{
-		for (int y = 0; y < cellH; ++y)
-		{
-			dst[x][y] = src[x][y];
-			src[x][y] = T();
-		}
-	}
-}
-
-void advect(float q[cellW][cellH], float q_next[cellW][cellH])
-{
-	for (int y = 0; y < cellH; ++y)
-	{
-		for (int x = 0; x < cellW; ++x)
-		{
-			q_next[x][y] = 0;
-			
-			vec2 advectTarget = vec2(x, y) - velAt(vel, vec2(x, y)) / 60.f;
-
-			float tu = advectTarget.x - floor(advectTarget.x);
-			float tv = advectTarget.y - floor(advectTarget.y);
-			int xt = floor(advectTarget.x);
-			int yt = floor(advectTarget.y);
-
-			float ll = (1 - tu) * (1 - tv);
-			float lh = (1 - tu) * tv;
-			float hl = tu * (1 - tv);
-			float hh = tu * tv;
-
-			if (xt < 0 || xt + 1 > cellW - 1 || yt < 0 || yt + 1 > cellH - 1)
-			{
-				q_next[x][y] = 0;
-				continue;
-			}
-
-			q_next[x][y] += ll * q[xt][yt];
-			q_next[x][y] += hl * q[xt + 1][yt];
-			q_next[x][y] += lh * q[xt][yt + 1];
-			q_next[x][y] += hh * q[xt + 1][yt + 1];
-		}
-	}
-}
-
-void advect(vec2 q[cellW + 1][cellH + 1], vec2 q_next[cellW + 1][cellH + 1])
-{
-	for (int y = 0; y < cellH + 1; ++y)
-	{
-		for (int x = 0; x < cellW + 1; ++x)
-		{
-			q_next[x][y] = vec2();
-
-			vec2 advectTarget = vec2(x, y) - vel[x][y] / 60.f;
-
-			float tu = advectTarget.x - floor(advectTarget.x);
-			float tv = advectTarget.y - floor(advectTarget.y);
-			int xt = floor(advectTarget.x);
-			int yt = floor(advectTarget.y);
-
-			float ll = (1 - tu) * (1 - tv);
-			float lh = (1 - tu) * tv;
-			float hl = tu * (1 - tv);
-			float hh = tu * tv;
-
-			if (xt < 0 || xt + 1 > cellW || yt < 0 || yt + 1 > cellH)
-			{
-				q_next[x][y] = vec2();
-				continue;
-			}
-
-			q_next[x][y] += ll * q[xt][yt];
-			q_next[x][y] += hl * q[xt + 1][yt];
-			q_next[x][y] += lh * q[xt][yt + 1];
-			q_next[x][y] += hh * q[xt + 1][yt + 1];
-		}
-	}
-}
-
-void applyExternalForces(vec2 q[cellW + 1][cellH + 1], vec2 q_next[cellW + 1][cellH + 1])
-{
-	vec2 F_grav = vec2(0, -1);
-	for (int y = 0; y < cellH + 1; ++y)
-	{
-		for (int x = 0; x < cellW + 1; ++x)
-		{
-			q_next[x][y] = q[x][y] + F_grav * dt;
+			u->set(x, y, 0);
+			v->set(x, y, 0);
 		}
 	}
 }
 
 void enforceBoundary()
 {
+	for (int y = 0; y < cellH; ++y)
+	{
+		for (int x = 0; x < cellW; ++x)
+		{
+			if (cellType[x][y] == 1)
+			{
+				u->at(x, y) = 0;
+				u->at(x + 1, y) = 0;
+				v->at(x, y) = 0;
+				v->at(x, y + 1) = 0;
+
+			}
+		}
+	}
+	
 	for (int x = 0; x < cellW + 1; ++x)
 	{
-		vel[x][0].y = 0;
-		vel[x][cellH].y = 0;
+		v->set(x, 0, 0);
+		v->set(x, v->h - 1, 0);
 	}
-
 	for (int y = 0; y < cellH + 1; ++y)
 	{
-		vel[0][y].x = 0;
-		vel[cellW][y].x = 0;
+		u->set(0, y, 0);
+		u->set(u->w - 1, y, 0);
+	}
+}
+void createWalls()
+{
+	for (int y = 0; y < cellH; ++y)
+	{
+		cellType[20][y] = 1;
+		cellType[mapW - 10][y] = 1;
+	}
+	for (int i = 0; i <= 64; ++i)
+	{
+		cellType[i][64 - i] = 1;
+	}
+
+	cellType[64][80] = 1;
+}
+
+float r[128][128];
+float p[128][128];
+void buildR()
+{
+	float scale = 1;
+
+	for (int y = 0; y < 128; ++y)
+	{
+		for (int x = 0; x < 128; ++x)
+		{
+			r[x][y] = -scale * (u->at(x + 1, y) - u->at(x, y) +
+				v->at(x, y + 1) - v->at(x, y));
+		}
+	}
+}
+void project()
+{
+	float scale = dt / rho;
+	int N = 600;
+
+	float maxDelta = 0;
+	for (int iter = 0; iter < N; ++iter)
+	{
+		maxDelta = 0;
+
+		for (int y = 0; y < 128; ++y)
+		{
+			for (int x = 0; x < 128; ++x)
+			{
+				float diag = 0.001;
+				float offDiag = 0.001;
+
+				if (x > 0) {
+					diag += scale;
+					offDiag -= scale * p[x - 1][y];
+				}
+				if (y > 0) {
+					diag += scale;
+					offDiag -= scale * p[x][y - 1];
+				}
+				if (x < 128 - 1) {
+					diag += scale;
+					offDiag -= scale * p[x + 1][y];
+				}
+				if (y < 128 - 1) {
+					diag += scale;
+					offDiag -= scale * p[x][y + 1];
+				}
+
+				float newP = (r[x][y] - offDiag) / diag;
+
+				maxDelta = max(maxDelta, fabs(p[x][y] - newP));
+
+				p[x][y] = newP;
+			}
+		}
+
+		if (maxDelta < 0.01)
+		{
+			printf("maxdelta good enough\n");
+			return;
+		}
+	}
+	printf("maximum change was %f \n", maxDelta);
+}
+void applyPressure()
+{
+	double scale = dt / (rho);
+
+	for (int y = 0;  y < 128; y++)
+	{
+		for (int x = 0; x < 128; x++)
+		{
+			u->at(x, y) -= scale * p[x][y];
+			u->at(x + 1, y) += scale * p[x][y];
+			v->at(x, y) -= scale * p[x][y];
+			v->at(x, y + 1) += scale * p[x][y];
+		}
+	}
+
+	/*for (int y = 0; y < 128; y++)
+		u->at(0, y) = u->at(128, y) = 0.0;
+	for (int x = 0; x < 128; x++)
+		v->at(x, 0) = v->at(x, 128) = 0.0;*/
+}
+
+void applyExternal()
+{
+	for (int x = 59; x <= 69; ++x)
+	{
+		for (int y = 100; y < 112; ++y)
+		{
+			ink->set(x, y, 3);
+			u->set(x, y, 0);
+			v->set(x, y, -20);
+		}
 	}
 }
 
-void project(vec2 q[cellW + 1][cellH + 1], vec2 q_next[cellW + 1][cellH + 1])
-{
-
-}
-
-vec2 prevPos = vec2();
 void update()
 {
-	for (int x = 0; x < cellW + 1; ++x)
-	{
-		for (int y = 0; y < cellH + 1; ++y)
-		{
-			vel_next[x][y] = vec2();
-		}
-	}
-	for (int x = 0; x < cellW; ++x)
-		for (int y = 0; y < cellH; ++y)
-			pressure[x][y] = 0;
-
-
-	//advect(ink, ink_next);
-	//for (int x = 0; x < cellW; ++x) for (int y = 0; y < cellH; ++y) ink_next[x][y] = max(0.f, ink_next[x][y]);
+	applyExternal();
 	
-	advect(vel, vel_A);
-	applyExternalForces(vel_A, vel_next);
-	//copy(vel, vel_next);
+	buildR();
+	project();
+	applyPressure();
+	enforceBoundary();
 
-	for (int x = 0; x < cellW; ++x)
-	{
-		for (int y = 0; y < cellH; ++y)
-		{
-			ink[x][y] = ink_next[x][y];
-			vel[x][y] = vel_next[x][y];
-		}
-	}
+	u->advect(dt, u, v);
+	v->advect(dt, u, v);
+
+	ink->advect(dt, u, v);
+
+	ink->flip();
+	u->flip();
+	v->flip();
 
 	// diagnostics
 	{
@@ -257,24 +389,21 @@ void update()
 			0 <= ry && ry < cellH)
 		{
 			printf("-----------------------------\n");
-			printf("D: %f\n", ink[(int)rx][(int)ry]);
-			printf("V: %f, %f\n", vel[(int)rx][(int)ry].x, vel[(int)rx][(int)ry].y);
+			printf("D: %f\n", ink->at(rx, ry));
+			printf("V: %f, %f\n", u->lerp(rx, ry), v->lerp(rx, ry));
 			printf("P: %f\n", pressure[(int)rx][(int)ry]);
 			printf("-----------------------------\n\n");
 		}*/
 
-		if (0 <= rx && rx < cellW &&
+		/*if (0 <= rx && rx < cellW &&
 			0 <= ry && ry < cellH)
 		{
 			if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT))
 			{
-				vec2 p = (vec2(rx, ry) - prevPos) * 10.f;
-				ink[(int)rx][(int)ry] += 1;
+				ink->set(rx, ry, ink->at(rx, ry) + 1);
 				//vel[(int)rx][(int)ry] += p;
 			}
-		}
-
-		prevPos = vec2(rx, ry);
+		}*/
 	}
 }
 
@@ -294,8 +423,17 @@ void draw()
 		{
 			for (int y = 0; y < cellH; ++y)
 			{
-				float f = ink[x][y] / (max(0.f, ink[x][y]) + 1);
-				if (ink[x][y] >= 0)
+				if (cellType[x][y] == 1)
+				{
+					glColor3f(0, 1, 0);
+					glVertex2f(x, y);
+					glVertex2f(x + 1, y);
+					glVertex2f(x + 1, y + 1);
+					glVertex2f(x, y + 1);
+					continue;
+				}
+				float f = ink->at(x, y) / (3);
+				if (ink->lerp(x, y) >= 0)
 					glColor3f(f, f, f);
 				/*if (ink[x][y] < 0)
 					glColor3f(0, 1, 0);
@@ -317,11 +455,12 @@ void draw()
 		{
 			for (int y = 0; y < cellH + 1; y += 5)
 			{
-				vec2 v = vel[x][y];
+				float xVel = u->at(x, y), 
+					yVel = v->at(x, y);
 				glColor4f(1, 0, 0, 0.25f);
 				glVertex2f(x, y);
 				glColor3f(1, 0, 0);
-				glVertex2f(x + v.x, y + v.y);
+				glVertex2f(x + xVel, y + yVel);
 			}
 		}
 	}
@@ -353,7 +492,14 @@ int main()
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 
+	ink = new fluidQ(128, 128, 0.5, 0.5, 1);
+	u = new fluidQ(128 + 1, 128 + 1, 0.0, 0.5, 1);
+	v = new fluidQ(128 + 1, 128 + 1, 0.5, 0.0, 1);
 	setupParticles();
+
+	memset(p, 0, 128 * 128 * sizeof(float));
+	memset(cellType, 0, mapW * mapH * sizeof(int));
+	createWalls();
 
 	// main loop
 	auto currentTime = chrono::high_resolution_clock::now();
@@ -368,11 +514,7 @@ int main()
 		{
 			update();
 
-			if (2000 < iter && iter < 4000)
-				ink[65][20] += 1;
-
 			++iter;
-			//printf("iter %d\n", iter);
 
 			currentTime = newTime;
 		}
@@ -384,8 +526,13 @@ int main()
 		glfwSwapBuffers(window);
 		glfwPollEvents();
 	}
+	printf("%d", window);
 	glfwDestroyWindow(window);
 	glfwTerminate();
+
+	delete ink;
+	delete u;
+	delete v;
 
 	return 0;
 }
