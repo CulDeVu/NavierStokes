@@ -37,17 +37,19 @@ GLFWwindow* window;
 
 enum cellType
 {
-	WATER, AIR
+	WATER, AIR, SOLID
 };
 cellType type[mapW][mapH];
 
 struct particle
 {	
 	vec2 pos;
+	int type;
 
-	particle(vec2 p)
+	particle(vec2 p, int t = 0)
 	{
 		pos = p;
+		type = t;
 	}
 };
 
@@ -76,6 +78,21 @@ void setupParticles()
 
 void enforceBoundary()
 {
+	for (int y = 0; y < mapH; ++y)
+	{
+		for (int x = 0; x < mapW; ++x)
+		{
+			if (type[x][y] != SOLID)
+				continue;
+
+			u->at(x, y) = 0;
+			u->at(x + 1, y) = 0;
+
+			v->at(x, y) = 0;
+			v->at(x, y + 1) = 0;
+		}
+	}
+	
 	for (int x = 0; x < mapW + 1; ++x)
 	{
 		v->set(x, 0, 0);
@@ -89,7 +106,7 @@ void enforceBoundary()
 }
 void createWalls()
 {
-	/*for (int y = 0; y < cellH; ++y)
+	for (int y = 0; y < mapH; ++y)
 	{
 		type[20][y] = SOLID;
 		type[mapW - 10][y] = SOLID;
@@ -97,11 +114,20 @@ void createWalls()
 	for (int i = 0; i <= 64; ++i)
 	{
 		type[i][64 - i] = SOLID;
+		if (i < 64) type[i][64 - i - 1] = SOLID;
 	}
 
 	type[64][80] = SOLID;
 	//cellType[63][79] = 1;
-	//cellType[65][79] = 1;*/
+	//cellType[65][79] = 1;
+
+	/*for (int x = 0; x < mapW; ++x)
+	{
+		type[x][0] = SOLID;
+		type[0][x] = SOLID;
+		type[x][mapH - 1] = SOLID;
+		type[mapW - 1][x] = SOLID;
+	}*/
 }
 
 void computeR()
@@ -138,24 +164,36 @@ void project()
 				float n = 0;
 
 				if (x > 0) {
-					if (type[x][y] == WATER)
-						sigma += 1 * p[x -1][y];
-					++n;
+					if (type[x - 1][y] != SOLID)
+					{
+						if (type[x - 1][y] == WATER)
+							sigma += 1 * p[x - 1][y];
+						++n;
+					}
 				}
 				if (y > 0) {
-					if (type[x][y] == WATER)
-						sigma += 1 * p[x][y - 1];
-					++n;
+					if (type[x][y - 1] != SOLID)
+					{
+						if (type[x][y - 1] == WATER)
+							sigma += 1 * p[x][y - 1];
+						++n;
+					}
 				}
 				if (x < mapW - 1) {
-					if (type[x][y] == WATER)
-						sigma += 1 * p[x + 1][y];
-					++n;
+					if (type[x + 1][y] != SOLID)
+					{
+						if (type[x + 1][y] == WATER)
+							sigma += 1 * p[x + 1][y];
+						++n;
+					}
 				}
 				if (y < mapH - 1) {
-					if (type[x][y] == WATER)
-						sigma += 1 * p[x][y + 1];
-					++n;
+					if (type[x][y + 1] != SOLID)
+					{
+						if (type[x][y + 1] == WATER)
+							sigma += 1 * p[x][y + 1];
+						++n;
+					}
 				}
 
 				float newP = (r[x][y] - sigma) / -n;
@@ -165,7 +203,9 @@ void project()
 			}
 		}
 
-		if (maxDelta < 0.01)
+		//enforceBoundary();
+
+		if (maxDelta < 0.001)
 		{
 			//printf("maxdelta good enough after %d\n", iter);
 			return;
@@ -210,6 +250,7 @@ void applyPressure()
 void applyExternal()
 {
 	static int iter = 0;
+	static int amount = 0;
 	for (int x = 59; x <= 69; ++x)
 	{
 		for (int y = 100; y < 112; ++y)
@@ -218,13 +259,20 @@ void applyExternal()
 				continue;
 			ink->at(x, y) = 3;
 			//v->at(x, y) -= 0.6;
-			v->at(x, y) = 0;
-			u->at(x, y) = -8;
-			if (iter % 8 == 0)
+			//v->at(x, y) = 0;
+			//u->at(x, y) = -8;
+			//if (iter % 4 == 0)
+			if (type[x][y] != WATER)
+			{
 				parts.push_back(particle(vec2(x + nrand(), y + nrand())));
+				parts.push_back(particle(vec2(x - 10.f + nrand(), y + nrand()), 1));
+				//parts.push_back(particle(vec2(x + 0.5, y + 0.5)));
+				++amount;
+			}
 		}
 	}
 	++iter;
+	printf("Amount released: %d\n", amount);
 
 	for (int y = 0; y < mapH + 1; ++y)
 		for (int x = 0; x < mapW; ++x)
@@ -233,7 +281,7 @@ void applyExternal()
 
 void updateCellType()
 {
-	/*for (int y = 1; y < mapH - 1; ++y)
+	for (int y = 1; y < mapH - 1; ++y)
 	{
 		for (int x = 1; x < mapW - 1; ++x)
 		{
@@ -244,15 +292,20 @@ void updateCellType()
 				type[x][y + 1] == WATER)
 				parts.push_back(particle(vec2(x + nrand(), y + nrand())));
 		}
-	}*/
+	}
 	
+	int amountNow = 0;
 	for (int y = 0; y < mapH; ++y)
 	{
 		for (int x = 0; x < mapW; ++x)
 		{
-			type[x][y] = AIR;
+			if (type[x][y] == WATER)
+				++amountNow;
+			if (type[x][y] != SOLID)
+				type[x][y] = AIR;
 		}
 	}
+	printf("amount now: %d\n", amountNow);
 
 	for (particle& p : parts)
 	{
@@ -267,18 +320,9 @@ void updateCellType()
 		if (p.pos.y > mapH - 0.01)
 			p.pos.y = mapH - 0.01;
 
-		type[(int)(p.pos.x)][(int)(p.pos.y)] = WATER;
+		if (type[(int)(p.pos.x)][(int)(p.pos.y)] != SOLID)
+			type[(int)(p.pos.x)][(int)(p.pos.y)] = WATER;
 	}
-
-	/*for (int y = 0; y < mapH; ++y)
-	{
-		for (int x = 0; x < mapW; ++x)
-		{
-			if (type[x][y] == AIR)
-				p[x][y] = 0;
-		}
-	}*/
-	//parts.size();
 }
 
 void extrapolate()
@@ -395,6 +439,15 @@ void draw()
 				glColor3f(0, 0, 0);
 				if (type[x][y] == AIR)
 					glColor3f(0, 0, 1);
+				if (type[x][y] == SOLID)
+					glColor3f(0, 1, 0);
+
+				float xVel = u->lerp(x + 0.5, y + 0.5);
+				float yVel = v->lerp(x + 0.5, y + 0.5);
+				xVel = xVel / (abs(xVel) + 1) / 2;
+				yVel = yVel / (abs(yVel) + 1) / 2;
+				//glColor3f(0, xVel + 0.5, yVel + 0.5);
+
 				glVertex2f(x, y);
 				glVertex2f(x + 1, y);
 				glVertex2f(x + 1, y + 1);
@@ -404,11 +457,14 @@ void draw()
 	}
 	glEnd();
 
-	glColor3f(1, 0, 0);
 	glBegin(GL_POINTS);
 	{
 		for (particle p : parts)
 		{
+			if (p.type == 0)
+				glColor3f(1, 0, 0);
+			if (p.type == 1)
+				glColor3f(0, 1, 0);
 			glVertex2f(p.pos.x, p.pos.y);
 		}
 	}
@@ -473,6 +529,7 @@ int main()
 			type[x][y] = AIR;
 		}
 	}
+	createWalls();
 
 	// main loop
 	auto currentTime = chrono::high_resolution_clock::now();
