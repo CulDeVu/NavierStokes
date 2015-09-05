@@ -9,28 +9,6 @@ class fluidQ;
 void eulerIntegrator(float*, float*, float, fluidQ*, fluidQ*);
 void RK2Integrator(float*, float*, float, fluidQ*, fluidQ*);
 
-float lerp(float a, float b, float t)
-{
-	return a * (1 - t) + b * t;
-}
-
-float cerp(float a, float b, float c, float d, float t)
-{
-	float t_2 = t * t;
-	float t_3 = t_2 * t;
-
-	float minV = min(min(min(a, b), b), d);
-	float maxV = max(max(max(a, b), b), d);
-
-	float ret =
-		a*(0.0 - 0.5*t + 1.0*t_2 - 0.5*t_3) +
-		b*(1.0 + 0.0*t - 2.5*t_2 + 1.5*t_3) +
-		c*(0.0 + 0.5*t + 2.0*t_2 - 1.5*t_3) +
-		d*(0.0 + 0.0*t - 0.5*t_2 + 0.5*t_3);
-
-	return min(maxV, max(minV, ret));
-}
-
 class fluidQ
 {
 	float* cur;
@@ -38,6 +16,28 @@ class fluidQ
 
 	float ox, oy;
 	float delta_x;
+
+	float lerp(float a, float b, float t)
+	{
+		return a * (1 - t) + b * t;
+	}
+
+	float cerp(float a, float b, float c, float d, float t)
+	{
+		float t_2 = t * t;
+		float t_3 = t_2 * t;
+
+		float minV = min(min(min(a, b), b), d);
+		float maxV = max(max(max(a, b), b), d);
+
+		float ret =
+			a*(0.0 - 0.5*t + 1.0*t_2 - 0.5*t_3) +
+			b*(1.0 + 0.0*t - 2.5*t_2 + 1.5*t_3) +
+			c*(0.0 + 0.5*t + 2.0*t_2 - 1.5*t_3) +
+			d*(0.0 + 0.0*t - 0.5*t_2 + 0.5*t_3);
+
+		return min(maxV, max(minV, ret));
+	}
 
 public:
 	int w, h;
@@ -93,7 +93,7 @@ public:
 		float x01 = at(ix + 0, iy + 1);
 		float x11 = at(ix + 1, iy + 1);
 
-		return ::lerp(::lerp(x00, x10, x), ::lerp(x01, x11, x), y);
+		return lerp(lerp(x00, x10, x), lerp(x01, x11, x), y);
 	}
 
 	float cerp(float x, float y)
@@ -109,12 +109,12 @@ public:
 		int x0 = max(ix - 1, 0), x1 = ix, x2 = ix + 1, x3 = min(ix + 2, w - 1);
 		int y0 = max(iy - 1, 0), y1 = iy, y2 = iy + 1, y3 = min(iy + 2, h - 1);
 
-		double q0 = ::cerp(at(x0, y0), at(x1, y0), at(x2, y0), at(x3, y0), x);
-		double q1 = ::cerp(at(x0, y1), at(x1, y1), at(x2, y1), at(x3, y1), x);
-		double q2 = ::cerp(at(x0, y2), at(x1, y2), at(x2, y2), at(x3, y2), x);
-		double q3 = ::cerp(at(x0, y3), at(x1, y3), at(x2, y3), at(x3, y3), x);
+		double q0 = cerp(at(x0, y0), at(x1, y0), at(x2, y0), at(x3, y0), x);
+		double q1 = cerp(at(x0, y1), at(x1, y1), at(x2, y1), at(x3, y1), x);
+		double q2 = cerp(at(x0, y2), at(x1, y2), at(x2, y2), at(x3, y2), x);
+		double q3 = cerp(at(x0, y3), at(x1, y3), at(x2, y3), at(x3, y3), x);
 
-		return ::cerp(q0, q1, q2, q3, y);
+		return cerp(q0, q1, q2, q3, y);
 	}
 
 	void advect(float delta_t, fluidQ* u, fluidQ* v)
