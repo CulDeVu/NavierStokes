@@ -37,9 +37,8 @@ GLFWwindow* window;
 
 enum cellType
 {
-	WATER, AIR
+	WATER, AIR, SOLID
 };
-cellType type[mapW][mapH];
 
 struct particle
 {	
@@ -56,6 +55,7 @@ vector<particle> parts;
 fluidQ* ink;
 fluidQ* u;
 fluidQ* v;
+fluidQ* levelSet;
 
 float nrand()
 {
@@ -89,7 +89,7 @@ void enforceBoundary()
 }
 void createWalls()
 {
-	/*for (int y = 0; y < cellH; ++y)
+	/*for (int y = 0; y < mapH; ++y)
 	{
 		type[20][y] = SOLID;
 		type[mapW - 10][y] = SOLID;
@@ -131,29 +131,29 @@ void project()
 		{
 			for (int x = 0; x < mapW; ++x)
 			{
-				if (type[x][y] == AIR)
+				if (levelSet->at(x, y) > 0)
 					continue;
 				
 				float sigma = 0;
 				float n = 0;
 
 				if (x > 0) {
-					if (type[x][y] == WATER)
+					if (levelSet->at(x - 1, y) < 0)
 						sigma += 1 * p[x -1][y];
 					++n;
 				}
 				if (y > 0) {
-					if (type[x][y] == WATER)
+					if (levelSet->at(x, y - 1) < 0)
 						sigma += 1 * p[x][y - 1];
 					++n;
 				}
 				if (x < mapW - 1) {
-					if (type[x][y] == WATER)
+					if (levelSet->at(x + 1, y) < 0)
 						sigma += 1 * p[x + 1][y];
 					++n;
 				}
 				if (y < mapH - 1) {
-					if (type[x][y] == WATER)
+					if (levelSet->at(x, y + 1) < 0)
 						sigma += 1 * p[x][y + 1];
 					++n;
 				}
@@ -181,7 +181,7 @@ void applyPressure()
 	{
 		for (int x = 0; x < mapW; x++)
 		{	
-			if (type[x][y] != WATER)
+			if (levelSet->at(x, y) > 0)
 				continue;
 			u->at(x, y) -= scale * p[x][y];
 			u->at(x + 1, y) += scale * p[x][y];
@@ -190,38 +190,122 @@ void applyPressure()
 		}
 	}
 }
-/*void applyPressure()
+
+vector<vec2> markers;
+void recomputeLevelSet()
 {
-	float scale = dt / rho;
+	markers.clear();
+	for (int y = 0; y < mapH; y++)
+	{
+		for (int x = 0; x < mapW; x++)
+		{
+			float cur = levelSet->at(x, y);
+
+			if (cur == 0)
+			{
+				markers.push_back(vec2(x, y));
+			}
+			else if (cur < 0 && (
+				levelSet->at(x + 1, y) > 0 ||
+				levelSet->at(x - 1, y) > 0 ||
+				levelSet->at(x, y - 1) > 0 ||
+				levelSet->at(x, y + 1) > 0))
+			{
+				markers.push_back(vec2(x, y));
+			}
+			else
+			{
+				levelSet->at(x, y) = 5 * cur / abs(cur);
+			}
+		}
+	}
 
 	for (int y = 0; y < mapH; y++)
 	{
 		for (int x = 0; x < mapW; x++)
 		{
-			int idx = y * mapW + x;
-			u->at(x, y) -= scale * pressure(idx);
-			u->at(x + 1, y) += scale * pressure(idx);
-			v->at(x, y) -= scale * pressure(idx);
-			v->at(x, y + 1) += scale * pressure(idx);
+			bool nope = false;
+			for (int i = 0; i < markers.size(); ++i)
+				if ((int)(markers[i].x + 0.5) == x && (int)(markers[i].y + 0.5) == y)
+					nope = true;
+			if (nope)
+				continue;
+
+			float bestScore = 5;
+			vec2 best = vec2();
+			for (int i = 0; i < markers.size(); ++i)
+			{
+				int dx = abs(markers[i].x - x);
+				int dy = abs(markers[i].y - y);
+
+				if (dx + dy < 5 * 2)
+					continue;
+
+				float len = sqrt(dx * dx + dy * dy);
+				if (len < bestScore)
+				{
+					best = vec2(x, y);
+					bestScore = len;
+				}
+			}
+
+			float cur = levelSet->at(x, y);
+			float bestVal = levelSet->at(best.x, best.y);
+			levelSet->at(x, y) = bestScore * cur / abs(cur) + bestVal;
 		}
 	}
-}*/
+}
+
+void extrapolate()
+{
+	for (int y = 0; y < mapH; y++)
+	{
+		for (int x = 0; x < mapW; x++)
+		{
+			if (levelSet->at(x, y) <= 0)
+				continue;
+
+			if (y < mapH - 1)
+			{
+				if (levelSet->at(x, y + 1) < 0)
+					v->at(x, y) = v->at(x, y + 1);
+			}
+			if (y > 0)
+			{
+				if (levelSet->at(x, y - 1) < 0)
+					v->at(x, y + 1) = v->at(x, y);
+			}
+
+			if (x > 0)
+			{
+				if (levelSet->at(x - 1, y) < 0)
+					u->at(x + 1, y) = u->at(x, y);
+			}
+			if (x < mapW - 1)
+			{
+				if (levelSet->at(x + 1, y) < 0)
+					u->at(x, y) = u->at(x + 1, y);
+			}
+		}
+	}
+}
 
 void applyExternal()
 {
 	static int iter = 0;
-	for (int x = 59; x <= 69; ++x)
+	for (int y = 0; y < mapH; ++y)
 	{
-		for (int y = 100; y < 112; ++y)
+		for (int x = 0; x < mapW; ++x)
 		{
-			if (iter > 1200)
+			if (iter > 0)
 				continue;
-			ink->at(x, y) = 3;
-			//v->at(x, y) -= 0.6;
-			v->at(x, y) = 0;
-			u->at(x, y) = -8;
-			if (iter % 8 == 0)
-				parts.push_back(particle(vec2(x + nrand(), y + nrand())));
+			vec2 o = vec2(64, 100);
+			levelSet->at(x, y) = min(levelSet->at(x, y), length(vec2(x, y) - o) - 10);
+
+			if (levelSet->at(x, y) < 0)
+			{
+				u->at(x, y) = -8;
+			}
 		}
 	}
 	++iter;
@@ -231,101 +315,15 @@ void applyExternal()
 			v->at(x, y) -= 9 * dt;
 }
 
-void updateCellType()
-{
-	for (int y = 1; y < mapH - 1; ++y)
-	{
-		for (int x = 1; x < mapW - 1; ++x)
-		{
-			if (type[x][y] == AIR &&
-				type[x - 1][y] == WATER &&
-				type[x + 1][y] == WATER &&
-				type[x][y - 1] == WATER &&
-				type[x][y + 1] == WATER)
-				parts.push_back(particle(vec2(x + nrand(), y + nrand())));
-		}
-	}
-	
-	for (int y = 0; y < mapH; ++y)
-	{
-		for (int x = 0; x < mapW; ++x)
-		{
-			type[x][y] = AIR;
-		}
-	}
-
-	for (particle& p : parts)
-	{
-		RK2Integrator(&p.pos.x, &p.pos.y, dt, u, v);
-		
-		if (p.pos.x < 0)
-			p.pos.x = 0;
-		if (p.pos.y < 0)
-			p.pos.y = 0;
-		if (p.pos.x > mapW - 0.01)
-			p.pos.x = mapW - 0.01;
-		if (p.pos.y > mapH - 0.01)
-			p.pos.y = mapH - 0.01;
-
-		type[(int)(p.pos.x)][(int)(p.pos.y)] = WATER;
-	}
-
-	/*for (int y = 0; y < mapH; ++y)
-	{
-		for (int x = 0; x < mapW; ++x)
-		{
-			if (type[x][y] == AIR)
-				p[x][y] = 0;
-		}
-	}*/
-	//parts.size();
-}
-
-void extrapolate()
-{
-	for (int y = 0; y < mapH; ++y)
-	{
-		for (int x = 0; x < mapW; ++x)
-		{
-			if (type[x][y] == WATER)
-				continue;
-
-			if (y > 0)
-			{
-				if (type[x][y - 1] == WATER)
-				{
-					v->at(x, y + 1) = v->at(x, y);
-				}
-			}
-			if (y < mapH - 1)
-			{
-				if (type[x][y + 1] == WATER)
-				{
-					v->at(x, y) = v->at(x, y + 1);
-				}
-			}
-			if (x > 0)
-			{
-				if (type[x - 1][y] == WATER)
-				{
-					u->at(x + 1, y) = u->at(x, y);
-				}
-			}
-			if (x < mapW - 1)
-			{
-				if (type[x + 1][y] == WATER)
-				{
-					u->at(x, y) = u->at(x + 1, y);
-				}
-			}
-			
-		}
-	}
-}
-
 void update()
 {
+	recomputeLevelSet();
+	extrapolate();
+	
 	applyExternal();
+
+	levelSet->advect(dt, u, v);
+	levelSet->flip();
 	
 	computeR();
 	project();
@@ -338,11 +336,6 @@ void update()
 
 	u->flip();
 	v->flip();
-
-	updateCellType();
-	extrapolate();
-
-	//printf("%d\n", (int)parts.size());
 
 	// diagnostics
 	{
@@ -360,18 +353,10 @@ void update()
 			printf("D: %f\n", ink->at(rx, ry));
 			printf("V: %f, %f\n", u->lerp(rx, ry), v->lerp(rx, ry));
 			printf("P: %f\n", p[(int)rx][(int)ry]);
+			printf("L: %f\n", levelSet->at(rx, ry));
 			printf("-----------------------------\n\n");
 		}
 
-		/*if (0 <= rx && rx < cellW &&
-			0 <= ry && ry < cellH)
-		{
-			if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT))
-			{
-				ink->set(rx, ry, ink->at(rx, ry) + 1);
-				//vel[(int)rx][(int)ry] += p;
-			}
-		}*/
 	}
 }
 
@@ -391,9 +376,9 @@ void draw()
 		{
 			for (int y = 0; y < mapH; ++y)
 			{
-				float f = ink->at(x, y) / (3);
-				glColor3f(0, 0, 0);
-				if (type[x][y] == AIR)
+				float f = levelSet->at(x, y) / 5;
+				glColor3f(f, f, f);
+				if (levelSet->at(x, y) < 0)
 					glColor3f(0, 0, 1);
 				glVertex2f(x, y);
 				glVertex2f(x + 1, y);
@@ -414,15 +399,22 @@ void draw()
 	}
 	glEnd();
 
+	glColor3f(1, 0, 0);
+	glBegin(GL_POINTS);
+	{
+		for (vec2 m : markers)
+		{
+			glVertex2f(m.x + 0.5f, m.y + 0.5f);
+		}
+	}
+	glEnd();
+
 	glBegin(GL_LINES);
 	{
 		for (int x = 0; x < mapW; x += 5)
 		{
 			for (int y = 0; y < mapH; y += 5)
 			{
-				if (type[x][y] != WATER)
-					continue;
-
 				float xVel = u->at(x, y), 
 					yVel = v->at(x, y);
 				glColor4f(0, 1, 0, 0.25f);
@@ -463,16 +455,18 @@ int main()
 	ink = new fluidQ(mapW, mapH, 0.5, 0.5, 1);
 	u = new fluidQ(mapW + 1, mapH + 1, 0.0, 0.5, 1);
 	v = new fluidQ(mapW + 1, mapH + 1, 0.5, 0.0, 1);
+	levelSet = new fluidQ(mapW, mapH, 0.5, 0.5, 1);
 	setupParticles();
 
-	memset(p, 0, mapW * mapH * sizeof(float));
-	for (int y = 0; y < mapH; ++y)
+	for (int x = 0; x < mapW; ++x)
 	{
-		for (int x = 0; x < mapW; ++x)
+		for (int y = 0; y < mapH; ++y)
 		{
-			type[x][y] = AIR;
+			levelSet->at(x, y) = 8000;
 		}
 	}
+
+	memset(p, 0, mapW * mapH * sizeof(float));
 
 	// main loop
 	auto currentTime = chrono::high_resolution_clock::now();
@@ -495,7 +489,7 @@ int main()
 		
 		draw();
 
-		//Sleep(500);
+		Sleep(500);
 		
 		glfwSwapBuffers(window);
 		glfwPollEvents();
