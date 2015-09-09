@@ -3,7 +3,6 @@
 #include <stdlib.h>
 
 using namespace std;
-using namespace glm;
 
 class fluidQ;
 

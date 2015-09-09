@@ -13,8 +13,6 @@
 #include <glm\glm.hpp>
 
 #include <Windows.h>
-#undef max
-#undef min
 
 #include "fluidQ.h"
 
@@ -43,22 +41,27 @@ enum cellType
 };
 cellType type[mapW][mapH];
 
+struct particle
+{	
+	vec2 pos;
+	vec2 vel;
+
+	particle(vec2 p, vec2 v)
+	{
+		pos = p;
+		vel = v;
+	}
+};
+
+vector<particle> parts;
+
 fluidQ* ink;
 fluidQ* u;
 fluidQ* v;
-fluidQ* levelSet;
 
 float nrand()
 {
 	return (float)rand() / RAND_MAX;
-}
-
-float sign(float a)
-{
-	if (a < 0)
-		return -1;
-	else
-		return 1;
 }
 
 void setupParticles()
@@ -69,14 +72,6 @@ void setupParticles()
 		{
 			u->set(x, y, 0);
 			v->set(x, y, 0);
-
-			vec2 p = vec2(x, y) - vec2(44, 80);
-			vec2 b = vec2(20, 40);
-			vec2 d = abs(p) - b;
-
-			float len = min(max(d.x, d.y), 0.f) + length(max(d, 0.f));
-
-			levelSet->at(x, y) = len;
 		}
 	}
 }
@@ -111,7 +106,7 @@ void enforceBoundary()
 }
 void createWalls()
 {
-	/*for (int y = 0; y < mapH; ++y)
+	for (int y = 0; y < mapH; ++y)
 	{
 		type[20][y] = SOLID;
 		type[mapW - 10][y] = SOLID;
@@ -212,11 +207,11 @@ void project()
 
 		if (maxDelta < 0.001)
 		{
-			printf("maxdelta good enough after %d: %f\n", iter, maxDelta);
+			//printf("maxdelta good enough after %d\n", iter);
 			return;
 		}
 	}
-	printf("maximum change was %f \n", maxDelta);
+	//printf("maximum change was %f \n", maxDelta);
 }
 void applyPressure()
 {
@@ -238,6 +233,36 @@ void applyPressure()
 
 void applyExternal()
 {
+	static int iter = 0;
+	static int amount = 0;
+	for (int x = 59; x <= 69; ++x)
+	{
+		//for (int y = 100; y < 112; ++y)
+		int y = 100;
+		{
+			if (iter > 1200)
+				continue;
+
+			if (type[x][y] != WATER)
+			{
+				float q = 2;
+				for (int i = 0; i < q; ++i)
+				{
+					for (int j = 0; j < q; ++j)
+					{
+						float xpos = x + i / q + nrand() / q;
+						float ypos = y + j / q + nrand() / q;
+						parts.push_back(particle(vec2(xpos, ypos), vec2(0, 0)));
+					}
+				}
+
+				++amount;
+			}
+		}
+	}
+	++iter;
+	printf("Amount released: %d\n", amount);
+
 	for (int y = 0; y < mapH + 1; ++y)
 		for (int x = 0; x < mapW; ++x)
 			v->at(x, y) -= 9 * dt;
@@ -245,114 +270,58 @@ void applyExternal()
 
 void updateCellType()
 {
+	/*for (int y = 1; y < mapH - 1; ++y)
+	{
+		for (int x = 1; x < mapW - 1; ++x)
+		{
+			if (type[x][y] == AIR &&
+				type[x - 1][y] == WATER &&
+				type[x + 1][y] == WATER &&
+				type[x][y - 1] == WATER &&
+				type[x][y + 1] == WATER)
+				parts.push_back(particle(vec2(x + nrand(), y + nrand())));
+		}
+	}*/
+	
+	int amountNow = 0;
 	for (int y = 0; y < mapH; ++y)
 	{
 		for (int x = 0; x < mapW; ++x)
 		{
-			if (levelSet->at(x, y) <= 0)
-				type[x][y] = WATER;
-			else
+			if (type[x][y] == WATER)
+				++amountNow;
+			if (type[x][y] != SOLID)
 				type[x][y] = AIR;
 		}
 	}
-}
+	printf("amount now: %d\n", amountNow);
 
-vector<vec2> surface;
-void reLevelSet()
-{
-	surface.clear();
-	for (int y = 1; y < mapH; ++y)
+	for (particle& p : parts)
 	{
-		for (int x = 1; x < mapW; ++x)
-		{
-			float a = levelSet->at(x, y);
-			
-			// x - 1
-			{
-				float b = levelSet->at(x - 1, y);
-				float t = -a / (b - a);
-				if (0 <= t && t <= 1)
-				{
-					surface.push_back(vec2(
-						x * (1 - t) + (x - 1) * t,
-						y));
-				}
-			}
+		RK2Integrator(&p.pos.x, &p.pos.y, dt, u, v);
+		
+		if (p.pos.x < 0)
+			p.pos.x = 0;
+		if (p.pos.y < 0)
+			p.pos.y = 0;
+		if (p.pos.x > mapW - 0.01)
+			p.pos.x = mapW - 0.01;
+		if (p.pos.y > mapH - 0.01)
+			p.pos.y = mapH - 0.01;
 
-			// y - 1
-			{
-				float b = levelSet->at(x, y - 1);
-				float t = -a / (b - a);
-				if (0 <= t && t <= 1)
-				{
-					surface.push_back(vec2(
-						x,
-						y * (1 - t) + (y - 1) * t));
-				}
-			}
-
-			// x - 1, y - 1
-			/*{
-				float b = levelSet->at(x - 1, y - 1);
-				float t = -a / (b - a);
-				if (0 <= t && t <= 1)
-				{
-					surface.push_back(vec2(
-						x * (1 - t) + (x - 1) * t,
-						y * (1 - t) + (y - 1) * t));
-				}
-			}*/
-		}
-	}
-
-	for (int y = 0; y < mapH; ++y)
-	{
-		for (int x = 0; x < mapW; ++x)
-		{
-			float r2 = 800;
-
-			for (vec2 pt : surface)
-			{
-				vec2 test = vec2(x, y) - pt;
-				float test_r2 = dot(test, test);
-				if (test_r2 < r2)
-					r2 = test_r2;
-			}
-
-			levelSet->at(x, y) = sqrt(r2) * sign(levelSet->at(x, y));
-		}
+		if (type[(int)(p.pos.x)][(int)(p.pos.y)] != SOLID)
+			type[(int)(p.pos.x)][(int)(p.pos.y)] = WATER;
 	}
 }
 
 void extrapolate()
 {
-	/*for (int y = 1; y < mapH - 1; ++y)
-	{
-		for (int x = 1; x < mapW - 1; ++x)
-		{
-			if (levelSet->at(x, y) <= 0)
-				continue;
-
-			float dL_dx = (levelSet->at(x + 1, y) - levelSet->at(x - 1, y)) / 2;
-			float dL_dy = (levelSet->at(x, y + 1) - levelSet->at(x, y - 1)) / 2;
-			vec2 displacement = (levelSet->at(x, y) + 0.5f) * vec2(dL_dx, dL_dy);
-
-			u->at(x, y) = u->lerp(x + displacement.x, y + displacement.y);
-			v->at(x, y) = v->lerp(x + displacement.x, y + displacement.y);
-		}
-	}*/
-	
 	for (int y = 0; y < mapH; ++y)
 	{
 		for (int x = 0; x < mapW; ++x)
 		{
 			if (type[x][y] == WATER)
 				continue;
-			
-			if (type[x - 1][y] != WATER)
-				u->at(x, y) = 0;
-			if (type[x + 1][y] != WATER)
-				u->at(x + 1, y) = 0;
 
 			if (y > 0)
 			{
@@ -389,26 +358,21 @@ void extrapolate()
 
 void update()
 {
-	reLevelSet();
-	updateCellType();
-
-	extrapolate();
-	
 	applyExternal();
-
-	levelSet->advect(dt, u, v);
-	u->advect(dt, u, v);
-	v->advect(dt, u, v);
-
-	levelSet->flip();
-	u->flip();
-	v->flip();
+	updateCellType();
+	extrapolate();
 	
 	computeR();
 	project();
 	applyPressure();
 
 	enforceBoundary();
+
+	u->advect(dt, u, v);
+	v->advect(dt, u, v);
+
+	u->flip();
+	v->flip();
 
 	//printf("%d\n", (int)parts.size());
 
@@ -453,24 +417,24 @@ void draw()
 	glScalef(2, 2, 1);
 	glScalef(1.f / mapW, 1.f / mapH, 1);
 
-	glBegin(GL_QUADS);
+	/*glBegin(GL_QUADS);
 	{
 		for (int x = 0; x < mapW; ++x)
 		{
 			for (int y = 0; y < mapH; ++y)
 			{
-				float f = levelSet->at(x, y) / (5);
-				glColor3f(0, 0, f);
-				/*if (levelSet->at(x, y) < 0)
-				{
-					glColor3f(-f, -f, 0);
-				}*/
+				float f = ink->at(x, y) / (3);
+				glColor3f(0, 0, 0);
+				if (type[x][y] == AIR)
+					glColor3f(0, 0, 1);
+				if (type[x][y] == SOLID)
+					glColor3f(0, 1, 0);
 
 				float xVel = u->lerp(x + 0.5, y + 0.5);
 				float yVel = v->lerp(x + 0.5, y + 0.5);
 				xVel = xVel / (abs(xVel) + 1) / 2;
 				yVel = yVel / (abs(yVel) + 1) / 2;
-				glColor3f(0, xVel + 0.5, yVel + 0.5);
+				//glColor3f(0, xVel + 0.5, yVel + 0.5);
 
 				glVertex2f(x, y);
 				glVertex2f(x + 1, y);
@@ -479,14 +443,15 @@ void draw()
 			}
 		}
 	}
-	glEnd();
+	glEnd();*/
 
-	glPointSize(2);
-	glColor3f(1, 1, 1);
+	glColor3f(1, 0, 0);
 	glBegin(GL_POINTS);
 	{
-		for (vec2 pt : surface)
-			glVertex2f(pt.x, pt.y);
+		for (particle p : parts)
+		{
+			glVertex2f(p.pos.x, p.pos.y);
+		}
 	}
 	glEnd();
 
@@ -496,6 +461,8 @@ void draw()
 		{
 			for (int y = 0; y < mapH; y += 5)
 			{
+				if (type[x][y] != WATER)
+					continue;
 
 				float xVel = u->at(x, y), 
 					yVel = v->at(x, y);
@@ -537,7 +504,6 @@ int main()
 	ink = new fluidQ(mapW, mapH, 0.5, 0.5, 1);
 	u = new fluidQ(mapW + 1, mapH + 1, 0.0, 0.5, 1);
 	v = new fluidQ(mapW + 1, mapH + 1, 0.5, 0.0, 1);
-	levelSet = new fluidQ(mapW, mapH, 0.5, 0.5, 1);
 	setupParticles();
 
 	memset(p, 0, mapW * mapH * sizeof(float));
