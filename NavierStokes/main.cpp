@@ -13,6 +13,8 @@
 #include <glm\glm.hpp>
 
 #include <Windows.h>
+#undef max
+#undef min
 
 #include "fluidQ.h"
 
@@ -70,8 +72,27 @@ void setupParticles()
 	{
 		for (int y = 0; y < mapH + 1; ++y)
 		{
-			u->set(x, y, 0);
-			v->set(x, y, 0);
+			if (y < mapH)
+				u->set(x, y, 0);
+			if (x < mapW)
+				v->set(x, y, 0);
+		}
+	}
+
+	for (int x = 25; x < 64; ++x)
+	{
+		for (int y = mapH - 80; y < mapH - 20; ++y)
+		{
+			float q = 2;
+			for (int i = 0; i < q; ++i)
+			{
+				for (int j = 0; j < q; ++j)
+				{
+					float xpos = x + i / q + nrand() / q;
+					float ypos = y + j / q + nrand() / q;
+					parts.push_back(particle(vec2(xpos, ypos), vec2(0, 0)));
+				}
+			}
 		}
 	}
 }
@@ -118,16 +139,6 @@ void createWalls()
 	}
 
 	type[64][80] = SOLID;
-	//cellType[63][79] = 1;
-	//cellType[65][79] = 1;
-
-	/*for (int x = 0; x < mapW; ++x)
-	{
-		type[x][0] = SOLID;
-		type[0][x] = SOLID;
-		type[x][mapH - 1] = SOLID;
-		type[mapW - 1][x] = SOLID;
-	}*/
 }
 
 void computeR()
@@ -203,7 +214,7 @@ void project()
 			}
 		}
 
-		//enforceBoundary();
+		enforceBoundary();
 
 		if (maxDelta < 0.001)
 		{
@@ -231,9 +242,10 @@ void applyPressure()
 	}
 }
 
+int numPartsInCell[mapW][mapH];
 void applyExternal()
 {
-	static int iter = 0;
+	/*static int iter = 0;
 	static int amount = 0;
 	for (int x = 59; x <= 69; ++x)
 	{
@@ -261,59 +273,35 @@ void applyExternal()
 		}
 	}
 	++iter;
-	printf("Amount released: %d\n", amount);
+	printf("Amount released: %d\n", amount);*/
 
-	for (int y = 0; y < mapH + 1; ++y)
-		for (int x = 0; x < mapW; ++x)
-			v->at(x, y) -= 9 * dt;
+	for (particle& p : parts)
+		p.vel.y -= 9 * dt;
 }
-
 void updateCellType()
 {
-	/*for (int y = 1; y < mapH - 1; ++y)
-	{
-		for (int x = 1; x < mapW - 1; ++x)
-		{
-			if (type[x][y] == AIR &&
-				type[x - 1][y] == WATER &&
-				type[x + 1][y] == WATER &&
-				type[x][y - 1] == WATER &&
-				type[x][y + 1] == WATER)
-				parts.push_back(particle(vec2(x + nrand(), y + nrand())));
-		}
-	}*/
-	
-	int amountNow = 0;
 	for (int y = 0; y < mapH; ++y)
 	{
 		for (int x = 0; x < mapW; ++x)
 		{
-			if (type[x][y] == WATER)
-				++amountNow;
-			if (type[x][y] != SOLID)
-				type[x][y] = AIR;
+			if (type[x][y] == SOLID)
+				continue;
+			type[x][y] = AIR;
 		}
 	}
-	printf("amount now: %d\n", amountNow);
 
 	for (particle& p : parts)
 	{
-		RK2Integrator(&p.pos.x, &p.pos.y, dt, u, v);
-		
-		if (p.pos.x < 0)
-			p.pos.x = 0;
-		if (p.pos.y < 0)
-			p.pos.y = 0;
-		if (p.pos.x > mapW - 0.01)
-			p.pos.x = mapW - 0.01;
-		if (p.pos.y > mapH - 0.01)
-			p.pos.y = mapH - 0.01;
+		int x = p.pos.x;
+		int y = p.pos.y;
 
-		if (type[(int)(p.pos.x)][(int)(p.pos.y)] != SOLID)
-			type[(int)(p.pos.x)][(int)(p.pos.y)] = WATER;
+		if (type[x][y] == SOLID)
+			continue;
+		type[x][y] = WATER;
+
+		numPartsInCell[x][y] += 1;
 	}
 }
-
 void extrapolate()
 {
 	for (int y = 0; y < mapH; ++y)
@@ -321,6 +309,8 @@ void extrapolate()
 		for (int x = 0; x < mapW; ++x)
 		{
 			if (type[x][y] == WATER)
+				continue;
+			if (type[x][y] == SOLID)
 				continue;
 
 			if (y > 0)
@@ -355,24 +345,170 @@ void extrapolate()
 		}
 	}
 }
+void updateParticles()
+{
+	for (particle& p : parts)
+	{
+		p.pos += p.vel * dt;
+
+		if (p.pos.x < 0)
+			p.pos.x = 0;
+		if (p.pos.y < 0)
+			p.pos.y = 0;
+		if (p.pos.x > mapW - 0.01)
+			p.pos.x = mapW - 0.01;
+		if (p.pos.y > mapH - 0.01)
+			p.pos.y = mapH - 0.01;
+	}
+
+	float maxNum = 0;
+	vec2 maxCellIndex = vec2();
+	float minNum = 80000;
+	vec2 minCellIndex = vec2();
+	for (int y = 0; y < mapH; ++y)
+	{
+		for (int x = 0; x < mapW; ++x)
+		{
+			if (numPartsInCell[x][y] > maxNum)
+			{
+				maxNum = numPartsInCell[x][y];
+			}
+		}
+	}
+}
+
+void particlesToGrid()
+{
+	float u_weights[mapW + 1][mapH];
+	float v_weights[mapW][mapH + 1];
+	for (int y = 0; y < mapH + 1; ++y)
+	{
+		for (int x = 0; x < mapW + 1; ++x)
+		{
+			if (y < mapH)
+				u_weights[x][y] = 0;
+			if (x < mapW)
+				v_weights[x][y] = 0;
+		}
+	}
+
+	u->clear();
+	v->clear();
+
+	for (particle& p : parts)
+	{
+		int ix = p.pos.x;
+		int iy = p.pos.y;
+
+		// u
+		{
+			float tx = p.pos.x - ix;
+			float ty = max(0.f, min(mapH - 0.5f, p.pos.y - iy - 0.5f));
+			
+			u->at(ix, iy) += p.vel.x * (1 - tx) * (1 - ty);
+			u->at(ix + 1, iy) += p.vel.x * tx * (1 - ty);
+			u->at(ix, iy + 1) += p.vel.x * (1 - tx) * ty;
+			u->at(ix + 1, iy + 1) += p.vel.x * tx * ty;
+
+			u_weights[ix][iy] += (1 - tx) * (1 - ty);
+			u_weights[ix + 1][iy] += tx * (1 - ty);
+			u_weights[ix][iy + 1] += (1 - tx) * ty;
+			u_weights[ix + 1][iy + 1] += tx * ty;
+		}
+		
+		// v
+		{
+			float tx = max(0.f, min(mapW - 0.5f, p.pos.x - ix - 0.5f));
+			float ty = p.pos.y - iy;
+
+			v->at(ix, iy) += p.vel.y * (1 - tx) * (1 - ty);
+			v->at(ix + 1, iy) += p.vel.y * tx * (1 - ty);
+			v->at(ix, iy + 1) += p.vel.y * (1 - tx) * ty;
+			v->at(ix + 1, iy + 1) += p.vel.y * tx * ty;
+
+			v_weights[ix][iy] += (1 - tx) * (1 - ty);
+			v_weights[ix + 1][iy] += tx * (1 - ty);
+			v_weights[ix][iy + 1] += (1 - tx) * ty;
+			v_weights[ix + 1][iy + 1] += tx * ty;
+		}
+	}
+
+	for (int y = 0; y < mapH + 1; ++y)
+	{
+		for (int x = 0; x < mapW + 1; ++x)
+		{
+			if (y < mapH)
+				u->at(x, y) /= max(1.f, u_weights[x][y]);
+			if (x < mapW)
+				v->at(x, y) /= max(1.f, v_weights[x][y]);
+		}
+	}
+}
+void gridToParticles()
+{
+	for (particle& p : parts)
+	{
+		int ix = p.pos.x;
+		int iy = p.pos.y;
+		float tx = p.pos.x - ix;
+		float ty = p.pos.y - iy;
+
+		// u
+		{
+			float tx = p.pos.x - ix;
+			float ty = max(0.f, min(mapH - 0.5f, p.pos.y - iy - 0.5f));
+
+			p.vel.x += u->diffAt(ix, iy) * (1 - tx) * (1 - ty);
+			p.vel.x += u->diffAt(ix + 1, iy) * tx * (1 - ty);
+			p.vel.x += u->diffAt(ix, iy + 1) * (1 - tx) * ty;
+			p.vel.x += u->diffAt(ix + 1, iy + 1) * tx * ty;
+		}
+
+		// v
+		{
+			float tx = max(0.f, min(mapW - 0.5f, p.pos.x - ix - 0.5f));
+			float ty = p.pos.y - iy;
+
+			p.vel.y += v->diffAt(ix, iy) * (1 - tx) * (1 - ty);
+			p.vel.y += v->diffAt(ix + 1, iy) * tx * (1 - ty);
+			p.vel.y += v->diffAt(ix, iy + 1) * (1 - tx) * ty;
+			p.vel.y += v->diffAt(ix + 1, iy + 1) * tx * ty;
+		}
+
+		/*p.vel.x += u->diffAt(ix, iy) * (1 - tx);
+		p.vel.x += u->diffAt(ix + 1, iy) * tx;
+
+		p.vel.y += v->diffAt(ix, iy) * (1 - ty);
+		p.vel.y += v->diffAt(ix, iy + 1) * ty;*/
+
+		/*u->at(ix, iy) += p.vel.x * (1 - tx);
+		u->at(ix + 1, iy) += p.vel.x * tx;
+		v->at(ix, iy) += p.vel.y * (1 - ty);
+		v->at(ix, iy + 1) += p.vel.y * ty;*/
+	}
+}
 
 void update()
 {
 	applyExternal();
-	updateCellType();
 	extrapolate();
-	
+	updateParticles();
+	updateCellType();
+
+	particlesToGrid();
+
+	u->copySrcToOld();
+	v->copySrcToOld();
+
+	enforceBoundary();
+
 	computeR();
 	project();
 	applyPressure();
 
 	enforceBoundary();
 
-	u->advect(dt, u, v);
-	v->advect(dt, u, v);
-
-	u->flip();
-	v->flip();
+	gridToParticles();
 
 	//printf("%d\n", (int)parts.size());
 

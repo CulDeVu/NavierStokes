@@ -2,6 +2,7 @@
 
 *.opensdf
 *.v12.suo
+*.suo
 *.sdf
 *.ppm
 *.png

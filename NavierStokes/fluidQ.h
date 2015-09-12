@@ -3,6 +3,7 @@
 #include <stdlib.h>
 
 using namespace std;
+using namespace glm;
 
 class fluidQ;
 
@@ -62,11 +63,20 @@ public:
 		delete[] old;
 	}
 
+	void clear()
+	{
+		memset(cur, 0, w * h * sizeof(float));
+	}
+
 	void flip()
 	{
 		float* lulz = cur;
 		cur = old;
 		old = lulz;
+	}
+	void copySrcToOld()
+	{
+		memcpy(old, cur, w * h * sizeof(float));
 	}
 
 	float at(int x, int y) const
@@ -76,6 +86,11 @@ public:
 	float &at(int x, int y)
 	{
 		return cur[y * w + x];
+	}
+
+	float diffAt(int x, int y) const
+	{
+		return cur[y * w + x] - old[y * w + x];
 	}
 
 	float lerp(float x, float y)
