@@ -13,8 +13,6 @@
 #include <glm\glm.hpp>
 
 #include <Windows.h>
-#undef max
-#undef min
 
 #include "fluidQ.h"
 
@@ -22,7 +20,7 @@ using namespace std;
 using namespace glm;
 
 const float imageWidth = 600,
-		imageHeight = 600;
+imageHeight = 600;
 
 float PI = 3.14159;
 
@@ -46,12 +44,10 @@ cellType type[mapW][mapH];
 struct particle
 {	
 	vec2 pos;
-	vec2 vel;
 
-	particle(vec2 p, vec2 v)
+	particle(vec2 p)
 	{
 		pos = p;
-		vel = v;
 	}
 };
 
@@ -66,35 +62,37 @@ float nrand()
 	return (float)rand() / RAND_MAX;
 }
 
+void spawnUniformParticles(int x, int y, float n)
+{
+	for (int i = 0; i < n; ++i)
+	{
+		for (int j = 0; j < n; ++j)
+		{
+			parts.push_back(particle(vec2(x + nrand() / n + i / n, y + nrand() / n + j / n)));
+		}
+	}
+}
+
 void setupParticles()
 {
 	for (int x = 0; x < mapW + 1; ++x)
 	{
 		for (int y = 0; y < mapH + 1; ++y)
 		{
-			if (y < mapH)
-				u->set(x, y, 0);
-			if (x < mapW)
-				v->set(x, y, 0);
+			u->set(x, y, 0);
+			v->set(x, y, 0);
 		}
 	}
 
-	for (int x = 25; x < 64; ++x)
+	/*for (int y = 0; y < mapH - 1; ++y)
 	{
-		for (int y = mapH - 80; y < mapH - 20; ++y)
+		for (int x = 0; x < 20; ++x)
 		{
-			float q = 2;
-			for (int i = 0; i < q; ++i)
-			{
-				for (int j = 0; j < q; ++j)
-				{
-					float xpos = x + i / q + nrand() / q;
-					float ypos = y + j / q + nrand() / q;
-					parts.push_back(particle(vec2(xpos, ypos), vec2(0, 0)));
-				}
-			}
+			//parts.push_back(particle(vec2(x + nrand() * 0.5, y + nrand())));
+			spawnUniformParticles(x, y, 2);
+			//type[x][y] = WATER;
 		}
-	}
+	}*/
 }
 
 void enforceBoundary()
@@ -116,11 +114,19 @@ void enforceBoundary()
 	
 	for (int x = 0; x < mapW + 1; ++x)
 	{
+		/*u->at(x, 1) = 0;
+		u->at(x + 1, 1) = 0;
+		u->at(x, v->h - 1) = 0;
+		u->at(x + 1, v->h - 1) = 0;*/
+		
 		v->set(x, 0, 0);
 		v->set(x, v->h - 1, 0);
 	}
 	for (int y = 0; y < mapH + 1; ++y)
 	{
+		/*v->at(u->w - 1, y) = 0;
+		v->at(u->w - 1, y + 1) = 0;*/
+		
 		u->set(0, y, 0);
 		u->set(u->w - 1, y, 0);
 	}
@@ -139,6 +145,16 @@ void createWalls()
 	}
 
 	type[64][80] = SOLID;
+	//cellType[63][79] = 1;
+	//cellType[65][79] = 1;
+
+	/*for (int x = 0; x < mapW; ++x)
+	{
+		type[x][0] = SOLID;
+		type[0][x] = SOLID;
+		type[x][mapH - 1] = SOLID;
+		type[mapW - 1][x] = SOLID;
+	}*/
 }
 
 void computeR()
@@ -214,9 +230,9 @@ void project()
 			}
 		}
 
-		enforceBoundary();
+		//enforceBoundary();
 
-		if (maxDelta < 0.001)
+		if (maxDelta < 0.0001)
 		{
 			//printf("maxdelta good enough after %d\n", iter);
 			return;
@@ -242,12 +258,12 @@ void applyPressure()
 	}
 }
 
-int numPartsInCell[mapW][mapH];
 void applyExternal()
 {
-	/*static int iter = 0;
+	static int iter = 0;
 	static int amount = 0;
 	for (int x = 59; x <= 69; ++x)
+	//int x = 69;
 	{
 		//for (int y = 100; y < 112; ++y)
 		int y = 100;
@@ -257,49 +273,62 @@ void applyExternal()
 
 			if (type[x][y] != WATER)
 			{
-				float q = 2;
-				for (int i = 0; i < q; ++i)
-				{
-					for (int j = 0; j < q; ++j)
-					{
-						float xpos = x + i / q + nrand() / q;
-						float ypos = y + j / q + nrand() / q;
-						parts.push_back(particle(vec2(xpos, ypos), vec2(0, 0)));
-					}
-				}
+				//v->at(x, y) = 0;
+				//v->at(x, y + 1) = 0;
 
-				++amount;
+				//u->at(x, y) = -20;
+				
+				spawnUniformParticles(x, y, 2);
 			}
 		}
 	}
 	++iter;
-	printf("Amount released: %d\n", amount);*/
 
-	for (particle& p : parts)
-		p.vel.y -= 9 * dt;
+	for (int y = 0; y < mapH + 1; ++y)
+		for (int x = 0; x < mapW; ++x)
+			v->at(x, y) -= 9 * dt;
 }
-void updateCellType()
+void clearCellType()
 {
+	/*for (int y = 1; y < mapH - 1; ++y)
+	{
+		for (int x = 1; x < mapW - 1; ++x)
+		{
+			if (type[x][y] == AIR &&
+				type[x - 1][y] == WATER &&
+				type[x + 1][y] == WATER &&
+				type[x][y - 1] == WATER &&
+				type[x][y + 1] == WATER)
+				parts.push_back(particle(vec2(x + nrand(), y + nrand())));
+		}
+	}*/
+
 	for (int y = 0; y < mapH; ++y)
 	{
 		for (int x = 0; x < mapW; ++x)
 		{
-			if (type[x][y] == SOLID)
-				continue;
-			type[x][y] = AIR;
+			if (type[x][y] != SOLID)
+				type[x][y] = AIR;
 		}
 	}
-
+}
+void updateParticles()
+{
 	for (particle& p : parts)
 	{
-		int x = p.pos.x;
-		int y = p.pos.y;
+		RK2Integrator(&p.pos.x, &p.pos.y, dt, u, v);
 
-		if (type[x][y] == SOLID)
-			continue;
-		type[x][y] = WATER;
+		if (p.pos.x < 0)
+			p.pos.x = 0;
+		if (p.pos.y < 0)
+			p.pos.y = 0;
+		if (p.pos.x > mapW - 0.01)
+			p.pos.x = mapW - 0.01;
+		if (p.pos.y > mapH - 0.01)
+			p.pos.y = mapH - 0.01;
 
-		numPartsInCell[x][y] += 1;
+		if (type[(int)(p.pos.x)][(int)(p.pos.y)] != SOLID)
+			type[(int)(p.pos.x)][(int)(p.pos.y)] = WATER;
 	}
 }
 void extrapolate()
@@ -309,8 +338,6 @@ void extrapolate()
 		for (int x = 0; x < mapW; ++x)
 		{
 			if (type[x][y] == WATER)
-				continue;
-			if (type[x][y] == SOLID)
 				continue;
 
 			if (y > 0)
@@ -345,170 +372,89 @@ void extrapolate()
 		}
 	}
 }
-void updateParticles()
+
+vector<int> reposistion;
+int numParts[mapW][mapH];
+void computeReposition()
 {
-	for (particle& p : parts)
-	{
-		p.pos += p.vel * dt;
-
-		if (p.pos.x < 0)
-			p.pos.x = 0;
-		if (p.pos.y < 0)
-			p.pos.y = 0;
-		if (p.pos.x > mapW - 0.01)
-			p.pos.x = mapW - 0.01;
-		if (p.pos.y > mapH - 0.01)
-			p.pos.y = mapH - 0.01;
-	}
-
-	float maxNum = 0;
-	vec2 maxCellIndex = vec2();
-	float minNum = 80000;
-	vec2 minCellIndex = vec2();
+	reposistion.clear();
 	for (int y = 0; y < mapH; ++y)
 	{
 		for (int x = 0; x < mapW; ++x)
 		{
-			if (numPartsInCell[x][y] > maxNum)
+			numParts[x][y] = 0;
+		}
+	}
+
+
+	for (int i = 0; i < parts.size(); ++i)
+	{
+		particle p = parts[i];
+		int x = p.pos.x;
+		int y = p.pos.y;
+
+		if (type[x][y] != SOLID)
+			numParts[x][y] += 1;
+
+		if (type[x][y] == SOLID)
+			reposistion.push_back(i);
+		if (numParts[x][y] > 12)
+			reposistion.push_back(i);
+	}
+}
+void repositionParticles()
+{
+	for (int y = 0; y < mapH; ++y)
+	{
+		for (int x = 0; x < mapW; ++x)
+		{
+			boolean isLonely = type[x][y] == AIR &&
+				type[x - 1][y] == WATER &&
+				type[x + 1][y] == WATER &&
+				type[x][y - 1] == WATER &&
+				type[x][y + 1] == WATER;
+
+			if (numParts[x][y] == 0 && !isLonely)
+				continue;
+
+			while (reposistion.size() != 0 && numParts[x][y] < 4)
 			{
-				maxNum = numPartsInCell[x][y];
+				int i = reposistion.back();
+				reposistion.pop_back();
+
+				parts[i].pos.x = x + nrand();
+				parts[i].pos.y = y + nrand();
+
+				numParts[x][y] += 1;
+
+				type[x][y] = WATER;
 			}
 		}
-	}
-}
-
-void particlesToGrid()
-{
-	float u_weights[mapW + 1][mapH];
-	float v_weights[mapW][mapH + 1];
-	for (int y = 0; y < mapH + 1; ++y)
-	{
-		for (int x = 0; x < mapW + 1; ++x)
-		{
-			if (y < mapH)
-				u_weights[x][y] = 0;
-			if (x < mapW)
-				v_weights[x][y] = 0;
-		}
-	}
-
-	u->clear();
-	v->clear();
-
-	for (particle& p : parts)
-	{
-		int ix = p.pos.x;
-		int iy = p.pos.y;
-
-		// u
-		{
-			float tx = p.pos.x - ix;
-			float ty = max(0.f, min(mapH - 0.5f, p.pos.y - iy - 0.5f));
-			
-			u->at(ix, iy) += p.vel.x * (1 - tx) * (1 - ty);
-			u->at(ix + 1, iy) += p.vel.x * tx * (1 - ty);
-			u->at(ix, iy + 1) += p.vel.x * (1 - tx) * ty;
-			u->at(ix + 1, iy + 1) += p.vel.x * tx * ty;
-
-			u_weights[ix][iy] += (1 - tx) * (1 - ty);
-			u_weights[ix + 1][iy] += tx * (1 - ty);
-			u_weights[ix][iy + 1] += (1 - tx) * ty;
-			u_weights[ix + 1][iy + 1] += tx * ty;
-		}
-		
-		// v
-		{
-			float tx = max(0.f, min(mapW - 0.5f, p.pos.x - ix - 0.5f));
-			float ty = p.pos.y - iy;
-
-			v->at(ix, iy) += p.vel.y * (1 - tx) * (1 - ty);
-			v->at(ix + 1, iy) += p.vel.y * tx * (1 - ty);
-			v->at(ix, iy + 1) += p.vel.y * (1 - tx) * ty;
-			v->at(ix + 1, iy + 1) += p.vel.y * tx * ty;
-
-			v_weights[ix][iy] += (1 - tx) * (1 - ty);
-			v_weights[ix + 1][iy] += tx * (1 - ty);
-			v_weights[ix][iy + 1] += (1 - tx) * ty;
-			v_weights[ix + 1][iy + 1] += tx * ty;
-		}
-	}
-
-	for (int y = 0; y < mapH + 1; ++y)
-	{
-		for (int x = 0; x < mapW + 1; ++x)
-		{
-			if (y < mapH)
-				u->at(x, y) /= max(1.f, u_weights[x][y]);
-			if (x < mapW)
-				v->at(x, y) /= max(1.f, v_weights[x][y]);
-		}
-	}
-}
-void gridToParticles()
-{
-	for (particle& p : parts)
-	{
-		int ix = p.pos.x;
-		int iy = p.pos.y;
-		float tx = p.pos.x - ix;
-		float ty = p.pos.y - iy;
-
-		// u
-		{
-			float tx = p.pos.x - ix;
-			float ty = max(0.f, min(mapH - 0.5f, p.pos.y - iy - 0.5f));
-
-			p.vel.x += u->diffAt(ix, iy) * (1 - tx) * (1 - ty);
-			p.vel.x += u->diffAt(ix + 1, iy) * tx * (1 - ty);
-			p.vel.x += u->diffAt(ix, iy + 1) * (1 - tx) * ty;
-			p.vel.x += u->diffAt(ix + 1, iy + 1) * tx * ty;
-		}
-
-		// v
-		{
-			float tx = max(0.f, min(mapW - 0.5f, p.pos.x - ix - 0.5f));
-			float ty = p.pos.y - iy;
-
-			p.vel.y += v->diffAt(ix, iy) * (1 - tx) * (1 - ty);
-			p.vel.y += v->diffAt(ix + 1, iy) * tx * (1 - ty);
-			p.vel.y += v->diffAt(ix, iy + 1) * (1 - tx) * ty;
-			p.vel.y += v->diffAt(ix + 1, iy + 1) * tx * ty;
-		}
-
-		/*p.vel.x += u->diffAt(ix, iy) * (1 - tx);
-		p.vel.x += u->diffAt(ix + 1, iy) * tx;
-
-		p.vel.y += v->diffAt(ix, iy) * (1 - ty);
-		p.vel.y += v->diffAt(ix, iy + 1) * ty;*/
-
-		/*u->at(ix, iy) += p.vel.x * (1 - tx);
-		u->at(ix + 1, iy) += p.vel.x * tx;
-		v->at(ix, iy) += p.vel.y * (1 - ty);
-		v->at(ix, iy + 1) += p.vel.y * ty;*/
 	}
 }
 
 void update()
 {
 	applyExternal();
-	extrapolate();
+
+	clearCellType();
 	updateParticles();
-	updateCellType();
+	extrapolate();
 
-	particlesToGrid();
-
-	u->copySrcToOld();
-	v->copySrcToOld();
-
-	enforceBoundary();
-
+	computeReposition();
+	repositionParticles();
+	
 	computeR();
 	project();
 	applyPressure();
 
 	enforceBoundary();
 
-	gridToParticles();
+	u->advect(dt, u, v);
+	v->advect(dt, u, v);
+
+	u->flip();
+	v->flip();
 
 	//printf("%d\n", (int)parts.size());
 
@@ -553,24 +499,29 @@ void draw()
 	glScalef(2, 2, 1);
 	glScalef(1.f / mapW, 1.f / mapH, 1);
 
-	/*glBegin(GL_QUADS);
+	glBegin(GL_QUADS);
 	{
 		for (int x = 0; x < mapW; ++x)
 		{
 			for (int y = 0; y < mapH; ++y)
 			{
-				float f = ink->at(x, y) / (3);
+				/*float f = ink->at(x, y) / (3);
 				glColor3f(0, 0, 0);
 				if (type[x][y] == AIR)
 					glColor3f(0, 0, 1);
 				if (type[x][y] == SOLID)
+					glColor3f(0, 1, 0);*/
+				
+				float f = numParts[x][y] / 4;
+				glColor3f(0, 0, f);
+				if (type[x][y] == SOLID)
 					glColor3f(0, 1, 0);
 
-				float xVel = u->lerp(x + 0.5, y + 0.5);
+				/*float xVel = u->lerp(x + 0.5, y + 0.5);
 				float yVel = v->lerp(x + 0.5, y + 0.5);
 				xVel = xVel / (abs(xVel) + 1) / 2;
 				yVel = yVel / (abs(yVel) + 1) / 2;
-				//glColor3f(0, xVel + 0.5, yVel + 0.5);
+				//glColor3f(0, xVel + 0.5, yVel + 0.5);*/
 
 				glVertex2f(x, y);
 				glVertex2f(x + 1, y);
@@ -579,19 +530,19 @@ void draw()
 			}
 		}
 	}
-	glEnd();*/
+	glEnd();
 
 	glColor3f(1, 0, 0);
 	glBegin(GL_POINTS);
 	{
 		for (particle p : parts)
 		{
-			glVertex2f(p.pos.x, p.pos.y);
+			glVertex2f(p.pos.x, p.pos.y); 
 		}
 	}
 	glEnd();
 
-	glBegin(GL_LINES);
+	/*glBegin(GL_LINES);
 	{
 		for (int x = 0; x < mapW; x += 5)
 		{
@@ -609,7 +560,7 @@ void draw()
 			}
 		}
 	}
-	glEnd();
+	glEnd();*/
 }
 
 int main()
