@@ -135,7 +135,7 @@ void createWalls()
 {
 	for (int y = 0; y < mapH; ++y)
 	{
-		type[20][y] = SOLID;
+		type[25][y] = SOLID;
 		type[mapW - 10][y] = SOLID;
 	}
 	for (int i = 0; i <= 64; ++i)
@@ -268,7 +268,7 @@ void applyExternal()
 		//for (int y = 100; y < 112; ++y)
 		int y = 100;
 		{
-			if (iter > 1200)
+			if (iter > 600)
 				continue;
 
 			if (type[x][y] != WATER)
@@ -284,9 +284,20 @@ void applyExternal()
 	}
 	++iter;
 
+	printf("%d\n", iter);
+
 	for (int y = 0; y < mapH + 1; ++y)
 		for (int x = 0; x < mapW; ++x)
 			v->at(x, y) -= 9 * dt;
+
+	/*for (int y = 0; y < mapH / 4; ++y)
+	{
+		for (int x = 2 * mapW / 4.f; x < mapW; ++x)
+		{
+			v->at(x, y) = 20;
+			u->at(x, y) = u->at(x, y) * 0.99;
+		}
+	}*/
 }
 void clearCellType()
 {
@@ -477,15 +488,33 @@ void update()
 			printf("-----------------------------\n\n");
 		}
 
-		/*if (0 <= rx && rx < cellW &&
-			0 <= ry && ry < cellH)
+		if (0 <= rx && rx < mapW &&
+			0 <= ry && ry < mapH)
 		{
 			if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT))
 			{
-				ink->set(rx, ry, ink->at(rx, ry) + 1);
+				//ink->set(rx, ry, ink->at(rx, ry) + 1);
 				//vel[(int)rx][(int)ry] += p;
+				//printf("clicalsdhfalskdfuahsdkxlfajh\n");
+
+				for (int y = 0; y < mapH; ++y)
+				{
+					for (int x = 0; x < mapW; ++x)
+					{
+						float ix = (int)rx + 0.5f;
+						float iy = (int)ry + 0.5f;
+
+						vec2 r = vec2(ix, iy) - vec2(x, y);
+						float t = 500 / dot(r, r);
+						r = normalize(r);
+
+						u->at(x, y) += r.x * t;
+						v->at(x, y) += r.y * t;
+					}
+				}
+
 			}
-		}*/
+		}
 	}
 }
 
@@ -512,7 +541,7 @@ void draw()
 				if (type[x][y] == SOLID)
 					glColor3f(0, 1, 0);*/
 				
-				float f = numParts[x][y] / 4;
+				float f = numParts[x][y];
 				glColor3f(0, 0, f);
 				if (type[x][y] == SOLID)
 					glColor3f(0, 1, 0);
