@@ -144,7 +144,21 @@ void createWalls()
 		if (i < 64) type[i][64 - i - 1] = SOLID;
 	}
 
-	type[64][80] = SOLID;
+	/*for (int i = 0; i < 30; ++i)
+	{
+		type[54][81 + i] = SOLID;
+		type[74][81 + i] = SOLID;
+	}
+	for (int i = 0; i < 6; ++i)
+	{
+		type[54 + i][80 - i] = SOLID;
+		type[74 - i][80 - i] = SOLID;
+	}
+	/*type[66][72] = SOLID;
+	type[65][71] = SOLID;
+	type[64][70] = SOLID;*/
+
+	//type[64][80] = SOLID;
 	//cellType[63][79] = 1;
 	//cellType[65][79] = 1;
 
@@ -342,44 +356,146 @@ void updateParticles()
 			type[(int)(p.pos.x)][(int)(p.pos.y)] = WATER;
 	}
 }
+int layerField[mapW][mapH];
 void extrapolate()
 {
+	/*for (int y = 0; y < mapH; ++y)
+	{
+	for (int x = 0; x < mapW; ++x)
+	{
+	if (type[x][y] == WATER)
+	continue;
+
+	if (y > 0)
+	{
+	if (type[x][y - 1] == WATER)
+	{
+	v->at(x, y + 1) = v->at(x, y);
+	}
+	}
+	if (y < mapH - 1)
+	{
+	if (type[x][y + 1] == WATER)
+	{
+	v->at(x, y) = v->at(x, y + 1);
+	}
+	}
+	if (x > 0)
+	{
+	if (type[x - 1][y] == WATER)
+	{
+	u->at(x + 1, y) = u->at(x, y);
+	}
+	}
+	if (x < mapW - 1)
+	{
+	if (type[x + 1][y] == WATER)
+	{
+	u->at(x, y) = u->at(x + 1, y);
+	}
+	}
+
+	}
+	}*/
+
 	for (int y = 0; y < mapH; ++y)
 	{
 		for (int x = 0; x < mapW; ++x)
 		{
 			if (type[x][y] == WATER)
-				continue;
+				layerField[x][y] = 0;
+			else
+				layerField[x][y] = -1;
+		}
+	}
 
-			if (y > 0)
+	for (int i = 1; i < 6; ++i)
+	{
+		for (int y = 0; y < mapH; ++y)
+		{
+			for (int x = 0; x < mapW; ++x)
 			{
-				if (type[x][y - 1] == WATER)
+				if (layerField[x][y] != -1)
+					continue;
+
+				bool l, t, r, b;
+				l = t = r = b = false;
+				float uAvg = 0; int uN = 0;
+				float vAvg = 0; int vN = 0;
+				if (x > 0)
 				{
-					v->at(x, y + 1) = v->at(x, y);
+					if (layerField[x - 1][y] == i - 1)
+					{
+						l = true;
+						uAvg += u->at(x, y);
+						++uN;
+					}
 				}
-			}
-			if (y < mapH - 1)
-			{
-				if (type[x][y + 1] == WATER)
+				if (y > 0)
 				{
-					v->at(x, y) = v->at(x, y + 1);
+					if (layerField[x][y - 1] == i - 1)
+					{
+						t = true;
+						vAvg += v->at(x, y);
+						++vN;
+					}
 				}
-			}
-			if (x > 0)
-			{
-				if (type[x - 1][y] == WATER)
+				if (x < mapW - 1)
 				{
-					u->at(x + 1, y) = u->at(x, y);
+					if (layerField[x + 1][y] == i - 1)
+					{
+						r = true;
+						uAvg += u->at(x + 1, y);
+						++uN;
+					}
 				}
-			}
-			if (x < mapW - 1)
-			{
-				if (type[x + 1][y] == WATER)
+				if (y < mapH - 1)
 				{
-					u->at(x, y) = u->at(x + 1, y);
+					if (layerField[x][y + 1] == i - 1)
+					{
+						b = true;
+						vAvg += v->at(x, y + 1);
+						++vN;
+					}
 				}
+
+				if (!(l || t || r || b))
+					continue;
+
+				uAvg = uAvg / max(1, uN);
+				vAvg = vAvg / max(1, vN);
+
+				if (x > 0)
+				{
+					if (type[x - 1][y] != WATER)
+					{
+						u->at(x, y) = uAvg;
+					}
+				}
+				if (y > 0)
+				{
+					if (type[x][y - 1] != WATER)
+					{
+						v->at(x, y) = vAvg;
+					}
+				}
+				if (x < mapW - 1)
+				{
+					if (type[x + 1][y] != WATER)
+					{
+						u->at(x + 1, y) = uAvg;
+					}
+				}
+				if (y < mapH - 1)
+				{
+					if (type[x][y + 1] != WATER)
+					{
+						v->at(x, y + 1) = vAvg;
+					}
+				}
+
+				layerField[x][y] = i;
 			}
-			
 		}
 	}
 }
@@ -419,6 +535,9 @@ void repositionParticles()
 	{
 		for (int x = 0; x < mapW; ++x)
 		{
+			if (type[x][y] == SOLID)
+				continue;
+			
 			boolean isLonely = type[x][y] == AIR &&
 				type[x - 1][y] == WATER &&
 				type[x + 1][y] == WATER &&
@@ -518,6 +637,17 @@ void update()
 	}
 }
 
+float metaField[mapW][mapH];
+void buildMetaBall()
+{
+	for (int y = 0; y < mapH; ++y)
+	{
+		for (int x = 0; x < mapW; ++x)
+		{
+			metaField[x][y] = 0;
+		}
+	}
+}
 void draw()
 {
 	glViewport(0, 0, imageWidth, imageHeight);
@@ -541,7 +671,7 @@ void draw()
 				if (type[x][y] == SOLID)
 					glColor3f(0, 1, 0);*/
 				
-				float f = numParts[x][y];
+				float f = numParts[x][y] / 4.f;
 				glColor3f(0, 0, f);
 				if (type[x][y] == SOLID)
 					glColor3f(0, 1, 0);
@@ -566,7 +696,7 @@ void draw()
 	{
 		for (particle p : parts)
 		{
-			glVertex2f(p.pos.x, p.pos.y); 
+			//glVertex2f(p.pos.x, p.pos.y); 
 		}
 	}
 	glEnd();
